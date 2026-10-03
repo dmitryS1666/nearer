@@ -70,6 +70,7 @@ export const initialState = {
   reactions: {},
   notificationPrefs: { daily: true, partner: true, reveal: true, streak: false },
   reminderTime: '20:00',
+  reminderConfigured: false,
   plus: false,
   installDismissed: false,
   testLabUnlocked: false,

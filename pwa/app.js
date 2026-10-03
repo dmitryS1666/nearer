@@ -32,6 +32,7 @@ let versionTapTimer = null;
 let gardenAnim = null; // { type: 'grow' | 'stage-up', stageId }
 let lastError = null;
 let revealAnimatedForKey = null;
+let pendingSettingsFocus = null;
 
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('blizhe-couple') : null;
 const app = document.getElementById('app');
@@ -147,6 +148,7 @@ function showErrorScreen(err) {
 
 function shell(content, active = screen) {
   const showRoles = state.testLabUnlocked;
+  const fitClass = active === 'today' ? ' today-fit' : '';
   return `
     <div class="aurora aurora-one"></div><div class="aurora aurora-two"></div>
     <header class="topbar">
@@ -160,12 +162,12 @@ function shell(content, active = screen) {
           : `<div class="top-quiet"><span>для двоих</span></div>`
       }
     </header>
-    <main class="main-content">${content}</main>
+    <main class="main-content${fitClass}">${content}</main>
     <nav class="tabbar" aria-label="Основная навигация">
       ${tabButton('today', '♡', 'Сегодня', active)}
       ${tabButton('garden', '♧', 'Сад', active)}
       ${tabButton('history', '◷', 'История', active)}
-      ${tabButton('packs', '✦', 'Plus', active)}
+      ${tabButton('packs', '✦', 'Плюс', active)}
       ${tabButton('settings', '⚙', 'Настройки', active)}
     </nav>`;
 }
@@ -238,7 +240,7 @@ function todayView() {
         <h2>${escapeHtml(q.text)}</h2>
         <p class="question-note">Ответ партнёра откроется только после твоего ответа.</p>
         <form id="answer-form">
-          <textarea id="answer-text" maxlength="700" rows="6" placeholder="Напиши то, что действительно хочется сказать…" enterkeyhint="done"></textarea>
+          <textarea id="answer-text" maxlength="700" rows="4" placeholder="Напиши то, что действительно хочется сказать…" enterkeyhint="done"></textarea>
           <div class="textarea-footer"><span id="char-count">0 / 700</span><span>Черновик сохраняется</span></div>
           <button class="primary large full sticky-cta" type="submit">Отправить ответ <span>♥</span></button>
         </form>
@@ -292,8 +294,8 @@ function todayView() {
 
   return shell(`
     <section class="dashboard-head">
-      <div><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>Время для вас двоих</h1><p>Пять минут внимания важнее ещё одного уведомления.</p></div>
-      <div class="streak-bubble"><span>🔥</span><b>${state.streak}</b><small>дней подряд</small></div>
+      <div><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>Время для вас двоих</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
+      <div class="streak-bubble" aria-label="Серия: ${state.streak} дней подряд"><span>🔥</span><div class="streak-meta"><b>${state.streak}</b><small>дней подряд</small></div></div>
     </section>
     ${notificationNudge()}
     ${body}
@@ -306,8 +308,14 @@ function answerCard(name, text, tone) {
 
 function notificationNudge() {
   return `<section class="notification-nudge" id="notif-nudge" hidden>
-    <div><span class="nudge-icon">🔔</span><div><b>Не пропускайте ежедневный вопрос</b><small>Мягкое напоминание в выбранное время.</small></div></div>
-    <button class="ghost" id="enable-push-nudge">Включить</button>
+    <div class="nudge-main">
+      <span class="nudge-icon" aria-hidden="true">🔔</span>
+      <div class="nudge-copy">
+        <b>Не пропускайте ежедневный вопрос</b>
+        <small>Мягкое напоминание в выбранное время.</small>
+      </div>
+    </div>
+    <button class="ghost" id="enable-push-nudge" type="button">Настроить</button>
   </section>`;
 }
 
@@ -343,7 +351,7 @@ function gardenView() {
   const remaining = garden.next ? Math.max(0, garden.next.minDays - state.completedDays) : 0;
   return shell(
     `
-    <section class="page-head"><div><div class="eyebrow">Ваше общее пространство</div><h1>Сад отношений</h1><p>Он растёт не от идеальных ответов, а от регулярного внимания друг к другу.</p></div><div class="streak-bubble"><span>🔥</span><b>${state.streak}</b><small>streak</small></div></section>
+    <section class="page-head"><div><div class="eyebrow">Ваше общее пространство</div><h1>Сад отношений</h1><p>Он растёт не от идеальных ответов, а от регулярного внимания друг к другу.</p></div><div class="streak-bubble" aria-label="Серия: ${state.streak} дней подряд"><span>🔥</span><div class="streak-meta"><b>${state.streak}</b><small>дней подряд</small></div></div></section>
     <section class="garden-card glass-card">
       <div class="sky-stars">✦ · ✧ · ✦</div>
       <div class="garden-stage ${animClass}" aria-label="${escapeHtml(stage.name)}">${stage.icon}</div>
@@ -354,9 +362,10 @@ function gardenView() {
     </section>
     <section class="stats-grid">
       <div class="stat-card"><span>💌</span><b>${state.history.length}</b><small>вопросов в истории</small></div>
-      <div class="stat-card"><span>🔥</span><b>${state.streak}</b><small>текущий streak</small></div>
-      <div class="stat-card"><span>♥</span><b>${Object.keys(state.reactions).length}</b><small>реакций</small></div>
+      <div class="stat-card"><span>🔥</span><b>${state.streak}</b><small>дней подряд</small></div>
+      <div class="stat-card"><span>♥</span><b>${Object.keys(state.reactions).length}</b><small>реакций к ответам</small></div>
     </section>
+    <p class="microcopy garden-hint">Реакции ставят после открытия ответов — на экране «Сегодня», когда оба ответили.</p>
   `,
     'garden'
   );
@@ -375,7 +384,7 @@ function historyView() {
     }
     ${
       !state.plus && state.history.length >= 2
-        ? `<section class="soft-paywall"><div><b>Полная история — в Couple Plus</b><p>Больше тем, развитие сада и будущие memories.</p></div><button class="ghost" data-nav="packs">Посмотреть Plus</button></section>`
+        ? `<section class="soft-paywall"><div><b>Полная история — в «Ближе Плюс»</b><p>Больше тем, развитие сада и будущие воспоминания.</p></div><button class="ghost" data-nav="packs">Смотреть Плюс</button></section>`
         : ''
     }
   `,
@@ -384,7 +393,18 @@ function historyView() {
 }
 
 function historyCard(item) {
-  return `<article class="timeline-item"><div class="timeline-dot"></div><div class="timeline-card"><div class="question-meta"><span>${escapeHtml(item.date)}</span><span class="pill">${escapeHtml(item.category)}</span></div><h3>${escapeHtml(item.question)}</h3><div class="mini-answers"><div><b>${escapeHtml(state.profile.name)}</b><p>${escapeHtml(item.answers.a?.text || '—')}</p></div><div><b>${escapeHtml(state.profile.partnerName)}</b><p>${escapeHtml(item.answers.b?.text || '—')}</p></div></div>${item.reaction ? `<div class="history-reaction">${item.reaction}</div>` : ''}</div></article>`;
+  return `<article class="timeline-item">
+    <div class="timeline-rail" aria-hidden="true"><span class="timeline-dot"></span></div>
+    <div class="timeline-card">
+      <div class="question-meta"><span class="history-date">${escapeHtml(item.date)}</span><span class="pill">${escapeHtml(item.category)}</span></div>
+      <h3>${escapeHtml(item.question)}</h3>
+      <div class="mini-answers">
+        <div><b>${escapeHtml(state.profile.name)}</b><p>${escapeHtml(item.answers.a?.text || '—')}</p></div>
+        <div><b>${escapeHtml(state.profile.partnerName)}</b><p>${escapeHtml(item.answers.b?.text || '—')}</p></div>
+      </div>
+      ${item.reaction ? `<div class="history-reaction">${item.reaction}</div>` : ''}
+    </div>
+  </article>`;
 }
 
 function packsView() {
@@ -392,20 +412,20 @@ function packsView() {
     ['💙', 'Глубокие разговоры', '50 вопросов', 'Спокойные вопросы о ценностях, поддержке и том, что обычно откладываем.'],
     ['🗺️', 'Приключения и мечты', '40 вопросов', 'Куда поехать, чему научиться и что однажды попробовать вместе.'],
     ['🔥', 'Близость', '35 вопросов', 'Более личные вопросы для пары, которая хочет говорить открытее.'],
-    ['✈️', 'На расстоянии', '30 вопросов', 'Ритуалы и разговоры для long-distance отношений.']
+    ['✈️', 'На расстоянии', '30 вопросов', 'Ритуалы и разговоры для отношений на расстоянии.']
   ];
   return shell(
     `
     <section class="plus-hero">
-      <div class="eyebrow">Couple Plus</div><h1>Больше поводов узнавать друг друга</h1>
-      <p>Полная история · Больше тематических вопросов · Специальные темы · Развитие сада · Будущие memories</p>
-      <div class="price"><b>${state.plus ? 'Plus активен' : 'Couple Plus'}</b><span>${state.plus ? 'тестовый доступ' : 'в релизе — подписка'}</span></div>
-      <button class="primary large" id="plus-cta">${state.plus ? 'Plus уже отмечен' : 'Попробовать Plus'}</button>
+      <div class="eyebrow">Ближе Плюс</div><h1>Больше поводов узнавать друг друга</h1>
+      <p>Полная история · Больше тематических вопросов · Специальные темы · Развитие сада · Будущие воспоминания</p>
+      <div class="price"><b>${state.plus ? 'Плюс активен' : 'Ближе Плюс'}</b><span>${state.plus ? 'тестовый доступ' : 'в релизе — подписка'}</span></div>
+      <button class="primary large" id="plus-cta">${state.plus ? 'Плюс уже отмечен' : 'Попробовать Плюс'}</button>
     </section>
     <div class="pack-grid">${packs
       .map(
         ([icon, title, count, desc]) =>
-          `<article class="pack-card ${state.plus ? '' : 'locked'}"><span class="pack-icon">${icon}</span><div><small>${count}</small><h3>${title}</h3><p>${desc}</p></div><span class="lock">${state.plus ? '→' : '🔒'}</span></article>`
+          `<article class="pack-card ${state.plus ? '' : 'locked'}"><span class="pack-icon">${icon}</span><div class="pack-copy"><small>${count}</small><h3>${title}</h3><p>${desc}</p></div><span class="lock">${state.plus ? '→' : '🔒'}</span></article>`
       )
       .join('')}</div>
   `,
@@ -426,12 +446,12 @@ function settingsView() {
       <button class="secondary" id="save-names">Сохранить имена</button>
     </section>
 
-    <section class="settings-card">
+    <section class="settings-card" id="settings-notifications">
       <h2>Уведомления</h2>
       ${prefToggle('daily', 'Ежедневный вопрос', 'Мягкое напоминание один раз в день')}
       ${prefToggle('partner', 'Партнёр ответил', 'Когда можно заходить дальше')}
       ${prefToggle('reveal', 'Ответы открыты', 'Когда оба ответа готовы')}
-      ${prefToggle('streak', 'Streak под угрозой', 'Опциональное напоминание вечером')}
+      ${prefToggle('streak', 'Серия под угрозой', 'Необязательное напоминание вечером')}
       <label class="setting-field inline">Время напоминания<input id="reminder-time" type="time" value="${state.reminderTime}"></label>
       <div class="button-row wrap" style="margin-top:12px">
         <button class="primary" id="enable-push">Разрешить уведомления</button>
@@ -447,6 +467,7 @@ function settingsView() {
         <div><span>Версия</span><b id="version-tap">${config.appName} ${config.versionName}</b></div>
         <div><span>Сборка</span><b>${config.buildLabel}</b></div>
         <div><span>Платформа</span><b>${runtime.platform()}</b></div>
+        <div><span>Отзывы</span><b>${escapeHtml(config.TEST_FEEDBACK_EMAIL || 'не задано')}</b></div>
       </div>
       <div class="button-row wrap">
         <button class="secondary" id="feedback-btn">Оставить отзыв о тестовой версии</button>
@@ -557,7 +578,7 @@ function bindPlus() {
     await track('plus_cta_clicked');
     await track('paywall_cta_clicked');
     if (state.plus) {
-      toast('Plus уже отмечен в тестовой версии');
+      toast('Плюс уже отмечен в тестовой версии');
       return;
     }
     alert('Это тестовая версия.\nВ релизе здесь будет подписка.');
@@ -609,7 +630,10 @@ function bindToday() {
       render();
     })
   );
-  document.getElementById('enable-push-nudge')?.addEventListener('click', enableNotifications);
+  document.getElementById('enable-push-nudge')?.addEventListener('click', () => {
+    pendingSettingsFocus = 'notifications';
+    nav('settings');
+  });
 }
 
 async function maybeHapticReveal() {
@@ -672,6 +696,12 @@ async function resetAllData() {
   render();
 }
 
+async function markReminderConfigured() {
+  if (state.reminderConfigured) return;
+  state.reminderConfigured = true;
+  await saveState(false);
+}
+
 async function enableNotifications() {
   await track('notification_permission_viewed');
   const status = await NotificationService.requestPermission();
@@ -680,6 +710,7 @@ async function enableNotifications() {
     if (state.notificationPrefs.daily) {
       await NotificationService.scheduleDailyReminder(state.reminderTime);
     }
+    await markReminderConfigured();
     toast('Уведомления включены 🔔');
   } else {
     toast('Разрешение не получено', 'warn');
@@ -692,7 +723,8 @@ async function refreshNotificationNudge() {
   const nudge = document.getElementById('notif-nudge');
   if (!nudge) return;
   const status = await NotificationService.getPermissionStatus();
-  nudge.hidden = status === 'granted' || status === 'unsupported';
+  const configured = state.reminderConfigured || status === 'granted';
+  nudge.hidden = configured || status === 'unsupported';
 }
 
 function bindSettings() {
@@ -708,8 +740,12 @@ function bindSettings() {
       state.notificationPrefs[el.dataset.pref] = el.checked;
       await saveState();
       if (el.dataset.pref === 'daily') {
-        if (el.checked) await NotificationService.scheduleDailyReminder(state.reminderTime);
-        else await NotificationService.cancelDailyReminder();
+        if (el.checked) {
+          await NotificationService.scheduleDailyReminder(state.reminderTime);
+          const status = await NotificationService.getPermissionStatus();
+          if (status === 'granted') await markReminderConfigured();
+        } else await NotificationService.cancelDailyReminder();
+        refreshNotificationNudge();
       }
     })
   );
@@ -719,8 +755,17 @@ function bindSettings() {
     if (state.notificationPrefs.daily) {
       await NotificationService.scheduleDailyReminder(state.reminderTime);
     }
+    const status = await NotificationService.getPermissionStatus();
+    if (status === 'granted') await markReminderConfigured();
+    refreshNotificationNudge();
   });
   document.getElementById('enable-push')?.addEventListener('click', enableNotifications);
+  if (pendingSettingsFocus === 'notifications') {
+    pendingSettingsFocus = null;
+    requestAnimationFrame(() => {
+      document.getElementById('settings-notifications')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
   document.getElementById('test-notification')?.addEventListener('click', async () => {
     const status = await NotificationService.requestPermission();
     if (status === 'granted') {
@@ -847,11 +892,7 @@ function bindTestLab() {
 }
 
 async function sendFeedback() {
-  if (config.TEST_FEEDBACK_URL) {
-    await openExternalUrl(config.TEST_FEEDBACK_URL);
-    return;
-  }
-  const template = `Отзыв о тестовой версии Ближе ${config.versionName}
+  const template = `Отзыв о тестовой версии ${config.appName} ${config.versionName}
 
 Что понравилось?
 
@@ -863,8 +904,20 @@ async function sendFeedback() {
 
 Что раздражало?
 `;
+  if (config.TEST_FEEDBACK_URL) {
+    await openExternalUrl(config.TEST_FEEDBACK_URL);
+    return;
+  }
+  const email = String(config.TEST_FEEDBACK_EMAIL || '').trim();
+  if (email) {
+    const subject = encodeURIComponent(`Отзыв о ${config.appName} ${config.versionName}`);
+    const body = encodeURIComponent(template);
+    await openExternalUrl(`mailto:${email}?subject=${subject}&body=${body}`);
+    toast('Открываю письмо для отзыва');
+    return;
+  }
   const result = await shareText({
-    title: 'Отзыв о Ближе',
+    title: `Отзыв о ${config.appName}`,
     text: template,
     dialogTitle: 'Поделиться отзывом'
   });

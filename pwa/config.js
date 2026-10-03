@@ -6,7 +6,8 @@ export const config = {
   versionName: '0.1.0',
   versionCode: 1,
   buildLabel: 'Hypothesis Build',
-  // Optional feedback form URL for testers. Leave empty to use share/copy template.
+  // Feedback destination. Prefer email; optional form URL overrides mailto.
+  TEST_FEEDBACK_EMAIL: 'dsuschinsky@gmail.com',
   TEST_FEEDBACK_URL: '',
   demoPartner: {
     // Default delay range (ms) when auto-answer is enabled

@@ -10,9 +10,23 @@ Local-first ежедневный ритуал для пары. Этот репо
 
 ## Что это
 
-Онбординг → вопрос дня → ответ → ожидание → reveal → реакция → streak → сад → история → soft Plus paywall.
+Онбординг → вопрос дня → ответ → ожидание → reveal → реакция → серия → сад → история → soft paywall «Плюс».
 
 Данные хранятся локально (IndexedDB). «Партнёр» в этой сборке отвечает через Demo Partner Engine (без сервера). Тестеру это не объясняется.
+
+## Скриншоты (мобильное разрешение)
+
+Снято в viewport iPhone 14 (~390×844).
+
+| Онбординг | Сегодня | Ожидание | Ответы |
+|:---:|:---:|:---:|:---:|
+| ![Онбординг](docs/screenshots/01-onboarding.png) | ![Сегодня](docs/screenshots/02-today.png) | ![Ожидание](docs/screenshots/03-waiting.png) | ![Ответы](docs/screenshots/04-reveal.png) |
+
+| Сад | История | Плюс | Настройки |
+|:---:|:---:|:---:|:---:|
+| ![Сад](docs/screenshots/05-garden.png) | ![История](docs/screenshots/06-history.png) | ![Плюс](docs/screenshots/07-plus.png) | ![Настройки](docs/screenshots/08-settings.png) |
+
+Исходники: `docs/screenshots/`. Переснять: `npm run build && npm run preview`, затем `node scripts/capture-readme-shots.mjs`.
 
 ## Структура репозитория
 
