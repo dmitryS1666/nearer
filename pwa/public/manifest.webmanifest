@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Ближе — один вопрос в день",
+  "short_name": "Ближе",
+  "description": "Маленький ежедневный ритуал для пары.",
+  "lang": "ru",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fbf9ff",
+  "theme_color": "#7657e8",
+  "categories": ["lifestyle", "social"],
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Сегодняшний вопрос", "short_name": "Вопрос", "url": "/?screen=today", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Наш сад", "short_name": "Сад", "url": "/?screen=garden", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192"}]}
+  ]
+}

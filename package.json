@@ -1,0 +1,36 @@
+{
+  "name": "nearer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ближе / Nearer — local-first couple ritual PWA + Capacitor Android hypothesis build",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config pwa/vite.config.js",
+    "build": "vite build --config pwa/vite.config.js",
+    "preview": "vite preview --config pwa/vite.config.js --host 127.0.0.1 --port 4173",
+    "cap:sync": "npm run build && npx cap sync android",
+    "android": "npm run cap:sync && npx cap open android",
+    "android:build:debug": "npm run cap:sync && node scripts/android-build.js debug",
+    "android:build:release": "npm run cap:sync && node scripts/android-build.js release",
+    "test": "node --test pwa/tests/domain.test.js pwa/tests/analytics.test.js",
+    "test:smoke": "node scripts/smoke-web.mjs",
+    "test:e2e": "python pwa/test_pwa.py"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/share": "8.0.3",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2",
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.5",
+    "typescript": "^7.0.2",
+    "vite": "8.3.2"
+  }
+}
