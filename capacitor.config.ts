@@ -7,16 +7,22 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * Layout:
  *   pwa/      — web PWA source + Vite build → pwa/www
  *   android/ — Capacitor Android shell
+ *   ios/     — Capacitor iOS shell (Xcode / macOS required to build)
  */
 const config: CapacitorConfig = {
   appId: 'app.blizhe.couple',
   appName: 'Ближе',
   webDir: 'pwa/www',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    iosScheme: 'capacitor'
   },
   android: {
     allowMixedContent: false
+  },
+  ios: {
+    contentInset: 'automatic',
+    preferredContentMode: 'mobile'
   },
   plugins: {
     SplashScreen: {

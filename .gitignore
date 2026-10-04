@@ -17,6 +17,13 @@ android/local.properties
 .env.*
 !.env.signing.example
 signing/
+# iOS (also see ios/.gitignore)
+ios/App/Pods/
+ios/App/build/
+ios/App/output/
+ios/DerivedData/
+ios/App/App/public/
+ios/capacitor-cordova-ios-plugins/
 .idea/
 .vscode/
 *.log
@@ -26,3 +33,4 @@ playwright-report/
 test-results/
 pwa/scripts/layout-shots/
 scripts/layout-shots/
+artifacts/visual/

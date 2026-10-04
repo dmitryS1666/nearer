@@ -3,8 +3,9 @@
 Local-first ежедневный ритуал для пары. Этот репозиторий содержит:
 
 - рабочую **PWA** (web);
-- **Capacitor 8.5.2** native shell;
-- **Android APK** для user-test (10–100 тестеров).
+- **Capacitor 8.5.2** native shells: **Android** + **iOS**;
+- **Android APK** для user-test (10–100 тестеров);
+- **iOS** Xcode-проект (сборка на macOS).
 
 Это **не** production release. Цель — проверить продуктовую гипотезу без backend.
 
@@ -37,7 +38,8 @@ pwa/                 # Web PWA (Vite source → pwa/www)
   platform/          # runtime, notifications, storage, haptics, …
   public/            # SW, manifest, offline shell
 android/             # Capacitor Android native shell
-scripts/             # Android build / icons / smoke
+ios/                 # Capacitor iOS native shell (Xcode)
+scripts/             # Android build / icons / smoke / screenshots
 docs/                # hypothesis, distribution, test plan
 capacitor.config.ts  # webDir: pwa/www
 ```
@@ -82,7 +84,7 @@ npm run test:smoke
 # JAVA_HOME = Android Studio JBR (JDK 21)
 # ANDROID_HOME = %LOCALAPPDATA%\Android\Sdk
 
-npm run cap:sync
+npm run cap:sync:android
 npm run android:build:debug
 npm run android:build:release
 ```
@@ -102,6 +104,16 @@ Install:
 adb install -r artifacts/blizhe-0.1.0-hypothesis.apk
 ```
 
+## iOS запуск (macOS + Xcode)
+
+```bash
+npm run cap:sync:ios
+npm run ios            # открывает Xcode
+```
+
+Структура: `ios/` рядом с `android/`. Bundle id: `app.blizhe.couple`, version `0.1.0`, portrait only.
+
+Сборка `.ipa` / TestFlight — только на Mac. Подробности: `docs/IOS_TESTING.md`.
 ## Service Worker behavior
 
 | Runtime | Behavior |
@@ -160,15 +172,12 @@ Set `TEST_FEEDBACK_URL` in `pwa/config.js`. Empty → share/copy feedback templa
 
 UI talks to `CoupleRepository`. Swap `LocalCoupleRepository` → `SupabaseCoupleRepository` without rewriting screens. Same for entitlements and partner engine.
 
-## iOS next step
+## iOS
 
-```bash
-npm install @capacitor/ios
-npx cap add ios
-npx cap sync ios
-```
+Проект уже добавлен: `ios/` + `@capacitor/ios@8.5.2`.  
+Синхронизация web assets: `npm run cap:sync:ios` → открытие: `npm run ios` (macOS).
 
-See `docs/IOS_TESTING.md`. Product code uses platform adapters — no Android-only hacks in UI.
+Product code uses platform adapters — no Android-only hacks in UI. See `docs/IOS_TESTING.md`.
 
 ## Known limitations
 

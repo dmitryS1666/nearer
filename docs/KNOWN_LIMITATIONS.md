@@ -21,8 +21,8 @@ Honest list for owners/QA.
 
 - Android APK sideload requires unknown-source confirmation.
 - Service Worker disabled inside Capacitor WebView by design.
-- iOS project not generated in this iteration.
-- Build requires Node ≥ 22 and JDK 21.
+- iOS Xcode project is in `ios/`; building/signing `.ipa` requires macOS + Xcode (not Windows).
+- Android build requires Node ≥ 22 and JDK 21.
 
 ## Privacy / network
 
