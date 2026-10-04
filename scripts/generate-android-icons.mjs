@@ -14,6 +14,7 @@ const densities = {
   'mipmap-xxxhdpi': 192
 };
 
+// Heart-only mark on transparent background (no baked square fill).
 const iconSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -23,10 +24,9 @@ const iconSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
       <stop offset="1" stop-color="#7B5CE8"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="118" fill="#F4F0FF"/>
   <path fill="url(#g)" d="M256 402c-18-14-128-92-128-192 0-48 36-84 84-84 28 0 52 14 68 36 16-22 40-36 68-36 48 0 84 36 84 84 0 100-110 178-128 192z"/>
-  <circle cx="210" cy="214" r="18" fill="#ffffff" fill-opacity="0.35"/>
-  <circle cx="302" cy="214" r="18" fill="#ffffff" fill-opacity="0.35"/>
+  <circle cx="210" cy="214" r="18" fill="#ffffff" fill-opacity="0.45"/>
+  <circle cx="302" cy="214" r="18" fill="#ffffff" fill-opacity="0.45"/>
 </svg>`);
 
 const splashSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
@@ -41,19 +41,34 @@ const splashSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 for (const [folder, size] of Object.entries(densities)) {
   const dir = resolve(res, folder);
   mkdirSync(dir, { recursive: true });
-  const png = await sharp(iconSvg).resize(size, size).png().toBuffer();
-  await sharp(png).toFile(resolve(dir, 'ic_launcher.png'));
-  await sharp(png).toFile(resolve(dir, 'ic_launcher_round.png'));
-  await sharp(png).toFile(resolve(dir, 'ic_launcher_foreground.png'));
+  // Keep transparent PNG for legacy/launcher shortcuts
+  await sharp(iconSvg).resize(size, size).png().toFile(resolve(dir, 'ic_launcher.png'));
+  await sharp(iconSvg).resize(size, size).png().toFile(resolve(dir, 'ic_launcher_round.png'));
+  // Adaptive foreground: padded heart in safe zone
+  const pad = Math.round(size * 0.18);
+  const inner = size - pad * 2;
+  await sharp({
+    create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
+  })
+    .composite([{ input: await sharp(iconSvg).resize(inner, inner).png().toBuffer(), left: pad, top: pad }])
+    .png()
+    .toFile(resolve(dir, 'ic_launcher_foreground.png'));
 }
 
-for (const dirName of ['icons', 'public/icons']) {
+for (const dirName of ['pwa/icons', 'pwa/public/icons', 'icons']) {
   const dir = resolve(root, dirName);
   mkdirSync(dir, { recursive: true });
   for (const size of [192, 512]) {
     await sharp(iconSvg).resize(size, size).png().toFile(resolve(dir, `icon-${size}.png`));
   }
-  await sharp(iconSvg).resize(512, 512).png().toFile(resolve(dir, 'maskable-512.png'));
+  // Maskable still needs safe padding on soft fill for PWA install
+  const maskable = await sharp({
+    create: { width: 512, height: 512, channels: 4, background: { r: 244, g: 240, b: 255, alpha: 1 } }
+  })
+    .composite([{ input: await sharp(iconSvg).resize(340, 340).png().toBuffer(), left: 86, top: 86 }])
+    .png()
+    .toBuffer();
+  writeFileSync(resolve(dir, 'maskable-512.png'), maskable);
 }
 
 const splashPng = await sharp(splashSvg).png().toBuffer();
@@ -83,9 +98,14 @@ const notifSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 mkdirSync(resolve(res, 'drawable'), { recursive: true });
 await sharp(notifSvg).resize(48, 48).png().toFile(resolve(res, 'drawable/ic_stat_icon.png'));
 
+// Soft solid adaptive background (OS masks it); icon art itself stays transparent PNG
 writeFileSync(
   resolve(res, 'values/ic_launcher_background.xml'),
   `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#F4F0FF</color>\n</resources>\n`
 );
+writeFileSync(
+  resolve(res, 'drawable/ic_launcher_background.xml'),
+  `<?xml version="1.0" encoding="utf-8"?>\n<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">\n    <solid android:color="#F4F0FF"/>\n</shape>\n`
+);
 
-console.log('Android icons + splash assets generated');
+console.log('Transparent heart PNG icons generated (no baked square fill)');

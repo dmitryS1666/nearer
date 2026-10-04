@@ -68,7 +68,7 @@ export const initialState = {
   answers: {},
   history: [],
   reactions: {},
-  notificationPrefs: { daily: true, partner: true, reveal: true, streak: false },
+  notificationPrefs: { daily: false, partner: false, reveal: false, streak: false },
   reminderTime: '20:00',
   reminderConfigured: false,
   plus: false,

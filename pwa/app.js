@@ -77,6 +77,65 @@ const bothAnswered = () => Boolean(todayAnswers().a?.text && todayAnswers().b?.t
 const meAnswered = () => Boolean(todayAnswers()[state.currentRole]?.text);
 const partnerAnswered = () => Boolean(todayAnswers()[partnerRole()]?.text);
 
+let uiIconSeq = 0;
+function uiIcon(name) {
+  const gid = `ui${++uiIconSeq}`;
+  if (name === 'bell') {
+    return `<svg class="ui-icon ui-icon-bell" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${gid}" x1="8" y1="4" x2="24" y2="28" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#FFE08A"/><stop offset="1" stop-color="#F5B94A"/>
+      </linearGradient></defs>
+      <path fill="url(#${gid})" d="M16 3.5c-4.2 0-7.6 3.3-7.6 7.4v3.2c0 1.5-.5 2.9-1.5 4.1l-.7.8c-.7.8-.2 2.1.9 2.1h17.8c1.1 0 1.6-1.3.9-2.1l-.7-.8c-1-1.2-1.5-2.6-1.5-4.1V10.9c0-4.1-3.4-7.4-7.6-7.4z"/>
+      <path fill="#F0C35A" d="M12.2 24.2a3.9 3.9 0 0 0 7.6 0H12.2z"/>
+      <circle cx="16" cy="7.2" r="1.3" fill="#FFF3C8" opacity=".85"/>
+    </svg>`;
+  }
+  if (name === 'flame') {
+    return `<svg class="ui-icon ui-icon-flame" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${gid}" x1="10" y1="28" x2="22" y2="4" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#FF6B3D"/><stop offset=".55" stop-color="#FF8F3A"/><stop offset="1" stop-color="#FFC857"/>
+      </linearGradient></defs>
+      <path fill="url(#${gid})" d="M16.2 3.2c.4 3.2-1.2 5.1-3.3 7.1-2.3 2.2-4.7 4.5-4.7 8.2 0 4.4 3.5 7.5 7.8 7.5s7.8-3.1 7.8-7.5c0-3.2-1.4-5.3-3.2-7.2-.7-.8-1.4-1.5-1.9-2.4-.3 1.6-1.2 2.8-2.5 3.8 1.1-3.2.4-5.8 0-9.5z"/>
+      <path fill="#FFE29A" d="M16 14.6c.2 1.5-.5 2.4-1.4 3.3-1 1-2 2-2 3.6 0 2 1.5 3.4 3.4 3.4s3.4-1.4 3.4-3.4c0-1.4-.6-2.3-1.4-3.2-.4-.4-.8-.8-1.1-1.3-.1.7-.5 1.2-1 1.7.5-1.4.2-2.6.1-4.1z"/>
+    </svg>`;
+  }
+  if (name === 'heart') {
+    return `<svg class="ui-icon ui-icon-heart" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${gid}" x1="6" y1="8" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#F48BB0"/><stop offset="1" stop-color="#C46BE8"/>
+      </linearGradient></defs>
+      <path fill="url(#${gid})" d="M16 27.2s-9.4-5.8-11.8-11.1C2.6 12.4 4.2 8 8.3 7.2c2.2-.4 4.2.7 5.4 2.4 1.2-1.7 3.2-2.8 5.4-2.4 4.1.8 5.7 5.2 4.1 8.9C25.4 21.4 16 27.2 16 27.2z"/>
+      <path fill="#FFE3F0" opacity=".55" d="M10.2 10.1c1.3-.8 2.9-.5 3.9.7-.9.7-1.5 1.6-1.8 2.7-1.4-1.1-2.6-2.3-2.1-3.4z"/>
+    </svg>`;
+  }
+  if (name === 'letter') {
+    return `<svg class="ui-icon ui-icon-letter" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="4.5" y="8" width="23" height="16.5" rx="3.5" fill="#EFE8FF"/>
+      <path d="M6.2 10.2 16 16.4l9.8-6.2" fill="none" stroke="#8B6FE0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="4.5" y="8" width="23" height="16.5" rx="3.5" fill="none" stroke="#B9A4F0" stroke-width="1.6"/>
+    </svg>`;
+  }
+  return '';
+}
+
+function daysInARowLabel(n) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'день подряд';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'дня подряд';
+  return 'дней подряд';
+}
+
+function hasNotificationPrefsEnabled() {
+  const prefs = state.notificationPrefs || {};
+  return Boolean(prefs.daily || prefs.partner || prefs.reveal || prefs.streak);
+}
+
+function streakBubble() {
+  const label = daysInARowLabel(state.streak);
+  return `<div class="streak-bubble" aria-label="Серия: ${state.streak} ${label}">${uiIcon('flame')}<div class="streak-meta"><b>${state.streak}</b><small>${label}</small></div></div>`;
+}
+
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (ch) => ({
     '&': '&amp;',
@@ -270,13 +329,15 @@ function todayView() {
           ${answerCard(state.profile.partnerName, answers.b?.text, 'rose')}
         </div>
         <div class="reaction-row">
-          <span>Оставить реакцию:</span>
-          ${['❤️', '🥹', '😂', '🫂']
+          <span class="reaction-label">Оставить реакцию:</span>
+          <div class="reaction-actions" role="group" aria-label="Реакции">
+          ${['❤️', '🥹', '😂', '🤗']
             .map(
               (r) =>
-                `<button class="reaction ${state.reactions[key] === r ? 'active' : ''}" data-reaction="${r}">${r}</button>`
+                `<button type="button" class="reaction ${state.reactions[key] === r ? 'active' : ''}" data-reaction="${r}" aria-label="Реакция ${r}"><span class="reaction-emoji">${r}</span></button>`
             )
             .join('')}
+          </div>
         </div>
         <div class="completion-card">
           <div><span class="completion-icon">🌱</span><div><b>Ваш сад растёт</b><small>Завершите день, чтобы сохранить его в историю.</small></div></div>
@@ -294,8 +355,8 @@ function todayView() {
 
   return shell(`
     <section class="dashboard-head">
-      <div><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>Время для вас двоих</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
-      <div class="streak-bubble" aria-label="Серия: ${state.streak} дней подряд"><span>🔥</span><div class="streak-meta"><b>${state.streak}</b><small>дней подряд</small></div></div>
+      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>Время для&nbsp;вас двоих</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
+      ${streakBubble()}
     </section>
     ${notificationNudge()}
     ${body}
@@ -306,10 +367,23 @@ function answerCard(name, text, tone) {
   return `<article class="answer-card ${tone}"><div class="avatar">${escapeHtml(name.charAt(0).toUpperCase())}</div><div><span>${escapeHtml(name)}</span><p>${escapeHtml(text)}</p></div></article>`;
 }
 
+function isReminderNudgeDismissed(permissionStatus) {
+  // Hide after the user actually configures reminders in Settings,
+  // or when the OS already blocks / doesn't support notifications.
+  return (
+    Boolean(state.reminderConfigured) ||
+    hasNotificationPrefsEnabled() ||
+    permissionStatus === 'denied' ||
+    permissionStatus === 'unsupported'
+  );
+}
+
 function notificationNudge() {
+  // Start hidden; refreshNotificationNudge reveals only if still needed.
+  // [hidden] must win over .notification-nudge { display:flex } via CSS.
   return `<section class="notification-nudge" id="notif-nudge" hidden>
     <div class="nudge-main">
-      <span class="nudge-icon" aria-hidden="true">🔔</span>
+      <span class="nudge-icon" aria-hidden="true">${uiIcon('bell')}</span>
       <div class="nudge-copy">
         <b>Не пропускайте ежедневный вопрос</b>
         <small>Мягкое напоминание в выбранное время.</small>
@@ -351,7 +425,7 @@ function gardenView() {
   const remaining = garden.next ? Math.max(0, garden.next.minDays - state.completedDays) : 0;
   return shell(
     `
-    <section class="page-head"><div><div class="eyebrow">Ваше общее пространство</div><h1>Сад отношений</h1><p>Он растёт не от идеальных ответов, а от регулярного внимания друг к другу.</p></div><div class="streak-bubble" aria-label="Серия: ${state.streak} дней подряд"><span>🔥</span><div class="streak-meta"><b>${state.streak}</b><small>дней подряд</small></div></div></section>
+    <section class="page-head"><div class="dashboard-copy"><div class="eyebrow">Ваше общее пространство</div><h1>Сад отношений</h1><p>Он растёт не от идеальных ответов, а от регулярного внимания друг к другу.</p></div>${streakBubble()}</section>
     <section class="garden-card glass-card">
       <div class="sky-stars">✦ · ✧ · ✦</div>
       <div class="garden-stage ${animClass}" aria-label="${escapeHtml(stage.name)}">${stage.icon}</div>
@@ -361,9 +435,9 @@ function gardenView() {
       <div class="milestones"><span>Завершённых дней: <b>${state.completedDays}</b></span><span>Этап: <b>${escapeHtml(stage.name)}</b></span></div>
     </section>
     <section class="stats-grid">
-      <div class="stat-card"><span>💌</span><b>${state.history.length}</b><small>вопросов в истории</small></div>
-      <div class="stat-card"><span>🔥</span><b>${state.streak}</b><small>дней подряд</small></div>
-      <div class="stat-card"><span>♥</span><b>${Object.keys(state.reactions).length}</b><small>реакций к ответам</small></div>
+      <div class="stat-card">${uiIcon('letter')}<div class="stat-meta"><b>${state.history.length}</b><small>вопросов в истории</small></div></div>
+      <div class="stat-card">${uiIcon('flame')}<div class="stat-meta"><b>${state.streak}</b><small>${daysInARowLabel(state.streak)}</small></div></div>
+      <div class="stat-card">${uiIcon('heart')}<div class="stat-meta"><b>${Object.keys(state.reactions).length}</b><small>реакций к ответам</small></div></div>
     </section>
     <p class="microcopy garden-hint">Реакции ставят после открытия ответов — на экране «Сегодня», когда оба ответили.</p>
   `,
@@ -519,6 +593,16 @@ function testLabView() {
         <button class="secondary" id="lab-role-me">Role: Me</button>
         <button class="secondary" id="lab-role-partner">Role: Partner</button>
         <button class="danger" id="lab-reset-all">Reset all app data</button>
+      </div>
+      <h3 class="lab-scenarios-title">Сценарии сада</h3>
+      <p class="microcopy">Прогоните несколько дней подряд и смотрите этапы: Семя → Росток (2) → Молодое (5) → Цветение (9) → Маленький сад (14) → Зрелый (21).</p>
+      <div class="button-row wrap">
+        <button class="secondary" id="lab-scenario-sprout" type="button">До ростка (2 дня)</button>
+        <button class="secondary" id="lab-scenario-young" type="button">До молодого (5)</button>
+        <button class="secondary" id="lab-scenario-flower" type="button">До цветения (9)</button>
+        <button class="secondary" id="lab-scenario-week" type="button">+7 совместных дней</button>
+        <button class="secondary" id="lab-scenario-full-day" type="button">Полный день → сад</button>
+        <button class="secondary" id="lab-scenario-reset-garden" type="button">Сбросить сад</button>
       </div>
       ${lastError ? `<pre class="error-debug">${escapeHtml(String(lastError?.stack || lastError))}</pre>` : ''}
     </section>`;
@@ -711,7 +795,7 @@ async function enableNotifications() {
       await NotificationService.scheduleDailyReminder(state.reminderTime);
     }
     await markReminderConfigured();
-    toast('Уведомления включены 🔔');
+    toast('Уведомления включены');
   } else {
     toast('Разрешение не получено', 'warn');
   }
@@ -723,8 +807,11 @@ async function refreshNotificationNudge() {
   const nudge = document.getElementById('notif-nudge');
   if (!nudge) return;
   const status = await NotificationService.getPermissionStatus();
-  const configured = state.reminderConfigured || status === 'granted';
-  nudge.hidden = configured || status === 'unsupported';
+  // Legacy installs may have toggles on without reminderConfigured.
+  if (hasNotificationPrefsEnabled() && !state.reminderConfigured) {
+    await markReminderConfigured();
+  }
+  nudge.hidden = isReminderNudgeDismissed(status);
 }
 
 function bindSettings() {
@@ -742,11 +829,13 @@ function bindSettings() {
       if (el.dataset.pref === 'daily') {
         if (el.checked) {
           await NotificationService.scheduleDailyReminder(state.reminderTime);
-          const status = await NotificationService.getPermissionStatus();
-          if (status === 'granted') await markReminderConfigured();
         } else await NotificationService.cancelDailyReminder();
-        refreshNotificationNudge();
       }
+      if (el.checked) {
+        await markReminderConfigured();
+      }
+      refreshNotificationNudge();
+      if (screen === 'today' || screen === 'settings') render();
     })
   );
   document.getElementById('reminder-time')?.addEventListener('change', async (e) => {
@@ -755,9 +844,11 @@ function bindSettings() {
     if (state.notificationPrefs.daily) {
       await NotificationService.scheduleDailyReminder(state.reminderTime);
     }
-    const status = await NotificationService.getPermissionStatus();
-    if (status === 'granted') await markReminderConfigured();
+    if (hasNotificationPrefsEnabled()) {
+      await markReminderConfigured();
+    }
     refreshNotificationNudge();
+    if (screen === 'today') render();
   });
   document.getElementById('enable-push')?.addEventListener('click', enableNotifications);
   if (pendingSettingsFocus === 'notifications') {
@@ -888,6 +979,54 @@ function bindTestLab() {
   document.getElementById('lab-reset-all')?.addEventListener('click', async () => {
     if (!confirm('Reset ALL app data?')) return;
     await resetAllData();
+  });
+
+  const jumpGardenTo = async (targetDays, label) => {
+    const prev = state.completedDays;
+    state.completedDays = targetDays;
+    state.streak = Math.max(state.streak, targetDays);
+    await saveState();
+    toast(`${label}: ${targetDays} дн. · ${gardenFromCompletedDays(targetDays).stage.name}`);
+    triggerGardenAnim(prev, state.completedDays);
+    nav('garden');
+  };
+
+  document.getElementById('lab-scenario-sprout')?.addEventListener('click', () => jumpGardenTo(2, 'Росток'));
+  document.getElementById('lab-scenario-young')?.addEventListener('click', () => jumpGardenTo(5, 'Молодое растение'));
+  document.getElementById('lab-scenario-flower')?.addEventListener('click', () => jumpGardenTo(9, 'Цветение'));
+  document.getElementById('lab-scenario-week')?.addEventListener('click', async () => {
+    const prev = state.completedDays;
+    state.completedDays += 7;
+    state.streak += 7;
+    await saveState();
+    toast(`+7 дней → ${state.completedDays} · ${gardenFromCompletedDays(state.completedDays).stage.name}`);
+    triggerGardenAnim(prev, state.completedDays);
+    nav('garden');
+  });
+  document.getElementById('lab-scenario-full-day')?.addEventListener('click', async () => {
+    const key = todayKey();
+    const now = new Date().toISOString();
+    state.answers[key] = {
+      a: { text: 'QA: мой ответ за день', submittedAt: now },
+      b: { text: 'QA: ответ партнёра', submittedAt: now }
+    };
+    state.reactions[key] = '❤️';
+    await saveState();
+    await completeDay();
+    coupleRepository.ensureTodayQuestion(state, { forceNextDay: true });
+    demoPartner.cancel();
+    await saveState();
+    toast(`Полный день → сад · ${state.calendarDate}`);
+    nav('garden');
+  });
+  document.getElementById('lab-scenario-reset-garden')?.addEventListener('click', async () => {
+    const prev = state.completedDays;
+    state.completedDays = 0;
+    state.streak = 0;
+    await saveState();
+    toast('Сад сброшен к семени');
+    triggerGardenAnim(prev, 0);
+    nav('garden');
   });
 }
 
