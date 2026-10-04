@@ -84,11 +84,42 @@ await page.click('#lab-trigger-partner');
 await page.click('[data-nav="today"]');
 await page.waitForSelector('text=Ответы открыты');
 await page.waitForTimeout(500);
+// Frame both answers + reactions in the mobile viewport
+await page.evaluate(() => {
+  const root = document.getElementById('toast-root');
+  if (root) root.innerHTML = '';
+  document.querySelector('.reveal-section')?.scrollIntoView({ block: 'start' });
+  // Hide bulky dashboard head for a cleaner product shot of the reveal
+  const head = document.querySelector('.dashboard-head');
+  const nudge = document.querySelector('.notification-nudge');
+  if (head) head.style.display = 'none';
+  if (nudge) nudge.style.display = 'none';
+});
+await page.waitForTimeout(300);
 await shot('04-reveal');
 
+// Reaction then garden — clean product loop for README
+await page.evaluate(() => {
+  const head = document.querySelector('.dashboard-head');
+  const nudge = document.querySelector('.notification-nudge');
+  if (head) head.style.display = '';
+  if (nudge) nudge.style.display = '';
+});
+await page.click('[data-reaction="❤️"]');
+await page.waitForTimeout(350);
+await page.evaluate(() => {
+  const root = document.getElementById('toast-root');
+  if (root) root.innerHTML = '';
+});
 await page.click('#complete-day');
 await page.waitForSelector('text=Сад отношений');
-await page.waitForTimeout(900);
+await page.waitForTimeout(1100);
+await page.evaluate(() => {
+  const root = document.getElementById('toast-root');
+  if (root) root.innerHTML = '';
+  document.querySelector('.garden-card')?.scrollIntoView({ block: 'center' });
+});
+await page.waitForTimeout(250);
 await shot('05-garden');
 
 await page.click('[data-nav="history"]');
