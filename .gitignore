@@ -15,8 +15,15 @@ android/local.properties
 *.jks
 .env
 .env.*
+!.env
+!.env.example
 !.env.signing.example
 signing/
+deploy/certs/*.pem
+deploy/certs/*.key
+deploy/certs/*.crt
+!deploy/certs/README.md
+
 # iOS (also see ios/.gitignore)
 ios/App/Pods/
 ios/App/build/

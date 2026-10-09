@@ -1,0 +1,23 @@
+# TLS:
+# - public DOMAIN + ACME_EMAIL → Let's Encrypt (automatic)
+# - DOMAIN=localhost → Caddy internal CA (browser trust warning / install local root)
+# - custom certs: uncomment tls block below and mount ./deploy/certs
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Custom certificates (optional):
+	# tls /certs/fullchain.pem /certs/privkey.pem
+
+	reverse_proxy frontend:80
+}

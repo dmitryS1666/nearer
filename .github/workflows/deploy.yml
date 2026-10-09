@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  COMPOSE_FILE: docker-compose.yml
+  COMPOSE_PROJECT_NAME: nearer
+  COMPOSE_ENV_FILES: .env
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ci:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on:
+      group: build
+    environment: production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare image names and validate configuration
+        run: |
+          echo "DOCKER_CONFIG=${RUNNER_TEMP}/nearer-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}/frontend:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          docker compose config --quiet
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker images
+        run: |
+          docker compose build --builder default --pull
+          docker compose push
+
+      - name: Deploy with Docker Compose
+        run: |
+          docker compose pull
+          docker compose up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout 180
+          docker compose exec -T frontend wget -qO- http://127.0.0.1/health
+
+      - name: Show deployment status
+        if: always()
+        run: docker compose ps

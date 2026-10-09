@@ -1,0 +1,39 @@
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:-nearer-frontend:local}
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3007}:80"
+    networks:
+      - tish
+
+# caddy:
+#   image: caddy:2.9-alpine
+#   restart: unless-stopped
+#   ports:
+#     - "80:80"
+#     - "443:443"
+#     - "443:443/udp"
+#   environment:
+#     DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+#     ACME_EMAIL: ${ACME_EMAIL:-}
+#   volumes:
+#     - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+#     - caddy_data:/data
+#     - caddy_config:/config
+#     # Optional custom TLS material:
+#     # - ./deploy/certs:/certs:ro
+#   depends_on:
+#     - frontend
+#   networks:
+#     - tish
+
+networks:
+  tish:
+    driver: bridge
+
+# volumes:
+#   caddy_data:
+#   caddy_config:

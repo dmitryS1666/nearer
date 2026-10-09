@@ -77,6 +77,50 @@ npm test
 npm run test:smoke
 ```
 
+## Деплой PWA на сервер (Docker + TLS)
+
+Клиенту на тест отдаётся **HTTPS-ссылка** (`https://<DOMAIN>/`), не apk/ipa.  
+Стек: Caddy или внешний TLS proxy → nginx (static PWA). Backend нет.
+
+### 1. Подготовка сервера
+
+- Docker Engine 24+ и Compose v2
+- Порт `APP_PORT` (по умолчанию **3007**) или **80/443** при включённом Caddy
+- DNS **A/AAAA** имени сайта на IP сервера (для Let's Encrypt)
+
+### 2. Запуск
+
+```bash
+git clone https://github.com/dmitryS1666/nearer.git
+cd nearer
+cp .env.example .env
+```
+
+В `.env` минимум:
+
+```env
+DOMAIN=app.example.com
+ACME_EMAIL=ops@example.com
+APP_PORT=3007
+```
+
+```bash
+docker compose up -d --build
+curl -fsS http://127.0.0.1:$APP_PORT/health   # {"status":"ok"}
+```
+
+По умолчанию Caddy в Compose закомментирован: повесьте внешний HTTPS reverse proxy на `APP_PORT`.  
+Свои `.pem`, встроенный Caddy и CI/CD — в **[docs/deploy.md](docs/deploy.md)**.
+
+### 3. Клиенту на тест
+
+1. Ссылка: `https://<DOMAIN>/`
+2. Android Chrome → «Установить приложение»
+3. iOS Safari → Поделиться → «На экран „Домой“»
+
+CI/CD на self-hosted runner'ах: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). Настройка runner'ов — в [docs/deploy.md](docs/deploy.md#cicd).
+
+
 ## Android запуск / build
 
 ```bash
@@ -185,8 +229,10 @@ See `docs/KNOWN_LIMITATIONS.md`.
 
 ## Docs
 
+- `docs/deploy.md` — Docker, TLS, CI/CD
 - `docs/USER_TEST_RU.md` — сценарий для тестеров
 - `docs/HYPOTHESIS.md` — гипотезы и критерии
 - `docs/ANDROID_DISTRIBUTION.md`
 - `docs/IOS_TESTING.md`
 - `docs/KNOWN_LIMITATIONS.md`
+
