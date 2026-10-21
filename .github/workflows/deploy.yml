@@ -91,12 +91,45 @@ jobs:
             deploy/caddy.nearer.snippet
           sparse-checkout-cone-mode: false
 
-      - name: Connect Tailscale
+      - name: Check Tailscale deploy secrets
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          set -euo pipefail
+          # Secrets must live on Environment "production" (this job uses it) or as repo secrets.
+          if [[ -n "${TS_AUTHKEY}" ]]; then
+            echo "Using TS_AUTHKEY"
+            exit 0
+          fi
+          if [[ -n "${TS_OAUTH_SECRET}" && -n "${TS_OAUTH_CLIENT_ID}" ]]; then
+            echo "Using Tailscale OAuth client"
+            exit 0
+          fi
+          echo "::error::Tailscale auth missing for environment production."
+          echo "Add either:"
+          echo "  - TS_OAUTH_CLIENT_ID + TS_OAUTH_SECRET (OAuth client with tag:ci), or"
+          echo "  - TS_AUTHKEY (ephemeral/reusable auth key tagged tag:ci)"
+          echo "GitHub → Settings → Environments → production → Environment secrets"
+          echo "Names must match exactly. Empty/placeholder values fail this step."
+          exit 1
+
+      - name: Connect Tailscale (OAuth)
+        if: ${{ secrets.TS_AUTHKEY == '' }}
         uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+          targets: 100.94.144.13
+
+      - name: Connect Tailscale (auth key)
+        if: ${{ secrets.TS_AUTHKEY != '' }}
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          targets: 100.94.144.13
 
       - name: Deploy nearer over SSH
         env:
