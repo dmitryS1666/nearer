@@ -1,5 +1,29 @@
 import { getValue, setValue, clearAll } from '../platform/storage.js';
 import { loadQuestions, categoryLabel } from './questions.js';
+import { SCHEMA_VERSION, migrateState } from './schema.js';
+import { emptyDeviceLink } from './link.js';
+import {
+  getLists,
+  getList,
+  createList,
+  updateList,
+  deleteList,
+  getListItems,
+  getListItem,
+  createListItem,
+  updateListItem,
+  deleteListItem
+} from './lists/model.js';
+import { reserveListItem, completeListItem } from './wishlist/model.js';
+import {
+  getMoments,
+  getMoment,
+  createMoment,
+  updateMoment,
+  deleteMoment
+} from './moments/model.js';
+import { attachMedia, removeMedia, clearLocalPhotoCache, setPhotoStorage } from './media/model.js';
+import { getImportantDates, createImportantDate, deleteImportantDate } from './dates/model.js';
 
 export { categoryLabel };
 
@@ -78,7 +102,20 @@ export const initialState = {
     partnerAutoAnswer: true,
     partnerDelayMs: 15000
   },
-  revealHapticDone: {}
+  revealHapticDone: {},
+  schemaVersion: SCHEMA_VERSION,
+  circleId: null,
+  startedUsingAt: null,
+  defaultListsSeeded: false,
+  lists: [],
+  listItems: [],
+  reservations: [],
+  moments: [],
+  mediaAttachments: [],
+  importantDates: [],
+  domainEvents: [],
+  photoStorage: 'preview',
+  deviceLink: emptyDeviceLink()
 };
 
 export class LocalCoupleRepository {
@@ -105,16 +142,50 @@ export class LocalCoupleRepository {
 
   async loadState() {
     const saved = await getValue('state', null);
-    if (!saved) return structuredClone(initialState);
-    return {
-      ...structuredClone(initialState),
-      ...saved,
-      profile: { ...initialState.profile, ...(saved.profile || {}) },
-      notificationPrefs: { ...initialState.notificationPrefs, ...(saved.notificationPrefs || {}) },
-      testLab: { ...initialState.testLab, ...(saved.testLab || {}) },
-      revealHapticDone: { ...(saved.revealHapticDone || {}) }
-    };
+    const merged = !saved
+      ? structuredClone(initialState)
+      : {
+          ...structuredClone(initialState),
+          ...saved,
+          profile: { ...initialState.profile, ...(saved.profile || {}) },
+          notificationPrefs: { ...initialState.notificationPrefs, ...(saved.notificationPrefs || {}) },
+          testLab: { ...initialState.testLab, ...(saved.testLab || {}) },
+          revealHapticDone: { ...(saved.revealHapticDone || {}) }
+        };
+    const migrated = migrateState(merged);
+    const needsWrite = !saved || saved.schemaVersion !== SCHEMA_VERSION || !saved.defaultListsSeeded;
+    if (needsWrite) await this.saveState(migrated);
+    return migrated;
   }
+
+  getLists(state) { return getLists(state); }
+  getList(state, id) { return getList(state, id); }
+  createList(state, input, ctx) { return createList(state, input, ctx); }
+  updateList(state, id, patch, ctx) { return updateList(state, id, patch, ctx); }
+  deleteList(state, id) { return deleteList(state, id); }
+
+  getListItems(state, listId) { return getListItems(state, listId); }
+  getListItem(state, id) { return getListItem(state, id); }
+  createListItem(state, input, ctx) { return createListItem(state, input, ctx); }
+  updateListItem(state, id, patch, ctx) { return updateListItem(state, id, patch, ctx); }
+  deleteListItem(state, id) { return deleteListItem(state, id); }
+  reserveListItem(state, id, ctx) { return reserveListItem(state, id, ctx); }
+  completeListItem(state, id, ctx) { return completeListItem(state, id, ctx); }
+
+  getMoments(state) { return getMoments(state); }
+  getMoment(state, id) { return getMoment(state, id); }
+  createMoment(state, input, ctx) { return createMoment(state, input, ctx); }
+  updateMoment(state, id, patch, ctx) { return updateMoment(state, id, patch, ctx); }
+  deleteMoment(state, id) { return deleteMoment(state, id); }
+
+  attachMedia(state, momentId, input, ctx) { return attachMedia(state, momentId, input, ctx); }
+  removeMedia(state, mediaId, ctx) { return removeMedia(state, mediaId, ctx); }
+  clearLocalPhotoCache(state, now) { return clearLocalPhotoCache(state, now); }
+  setPhotoStorage(state, mode) { return setPhotoStorage(state, mode); }
+
+  getImportantDates(state) { return getImportantDates(state); }
+  createImportantDate(state, input, ctx) { return createImportantDate(state, input, ctx); }
+  deleteImportantDate(state, id) { return deleteImportantDate(state, id); }
 
   async saveState(state) {
     await setValue('state', state);

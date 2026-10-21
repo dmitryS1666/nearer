@@ -4,6 +4,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
+# server/ is only needed so vite.config.js can resolve optional dev middleware imports during config load.
+COPY server ./server
 COPY pwa ./pwa
 RUN npm run build
 

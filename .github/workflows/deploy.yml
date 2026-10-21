@@ -1,5 +1,8 @@
 name: Deploy
 
+# Deploys ONLY the nearer Compose project to /regiuslab/nearer on APP_PORT 3011.
+# Never runs docker compose against other projects, never prune, never compose down.
+
 on:
   push:
     branches: [main]
@@ -9,14 +12,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-production
+  group: deploy-nearer-production
   cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
   COMPOSE_FILE: docker-compose.yml
   COMPOSE_PROJECT_NAME: nearer
-  COMPOSE_ENV_FILES: .env
+  DEPLOY_PATH: /regiuslab/nearer
+  APP_PORT: "3011"
 
 defaults:
   run:
@@ -27,10 +31,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/ci.yml
 
-  deploy:
+  build-and-push:
     needs: ci
-    runs-on:
-      group: build
+    runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
     permissions:
@@ -42,10 +45,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Prepare image names and validate configuration
+      - name: Prepare image names
         run: |
-          echo "DOCKER_CONFIG=${RUNNER_TEMP}/nearer-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}/frontend:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "LINK_PREVIEW_IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}/link-preview:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          printf 'DOMAIN=nearer.example.com\nACME_EMAIL=\nAPP_PORT=3011\n' > .env
           docker compose config --quiet
 
       - name: Log in to GitHub Container Registry
@@ -55,17 +59,90 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker images
+      - name: Build and push nearer images only
         run: |
           docker compose build --builder default --pull
           docker compose push
 
-      - name: Deploy with Docker Compose
+      - name: Export image tags
+        id: images
         run: |
-          docker compose pull
-          docker compose up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout 180
-          docker compose exec -T frontend wget -qO- http://127.0.0.1/health
+          echo "frontend=${FRONTEND_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "link_preview=${LINK_PREVIEW_IMAGE}" >> "$GITHUB_OUTPUT"
 
-      - name: Show deployment status
-        if: always()
-        run: docker compose ps
+    outputs:
+      frontend: ${{ steps.images.outputs.frontend }}
+      link_preview: ${{ steps.images.outputs.link_preview }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Checkout deploy helpers
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/server-deploy.sh
+            docker-compose.yml
+            .env.example
+            deploy/caddy.nearer.snippet
+          sparse-checkout-cone-mode: false
+
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Deploy nearer over SSH
+        env:
+          SSH_KEY: ${{ secrets.NEARER_SSH_KEY }}
+          SSH_HOST: ${{ secrets.NEARER_SSH_HOST }}
+          SSH_USER: ${{ secrets.NEARER_SSH_USER }}
+          FRONTEND_IMAGE: ${{ needs.build-and-push.outputs.frontend }}
+          LINK_PREVIEW_IMAGE: ${{ needs.build-and-push.outputs.link_preview }}
+        run: |
+          set -euo pipefail
+          test -n "${SSH_KEY:?}"
+          test -n "${SSH_HOST:?}"
+          test -n "${SSH_USER:?}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/nearer_deploy
+          chmod 600 ~/.ssh/nearer_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          ssh -i ~/.ssh/nearer_deploy -o IdentitiesOnly=yes "${SSH_USER}@${SSH_HOST}" \
+            "mkdir -p '${DEPLOY_PATH}' && test -w '${DEPLOY_PATH}'"
+
+          # Copy only nearer deploy helpers — no --delete (must not wipe /regiuslab/nearer).
+          rsync -az \
+            -e "ssh -i ~/.ssh/nearer_deploy -o IdentitiesOnly=yes" \
+            ./docker-compose.yml \
+            "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/docker-compose.yml"
+          rsync -az \
+            -e "ssh -i ~/.ssh/nearer_deploy -o IdentitiesOnly=yes" \
+            ./scripts/server-deploy.sh \
+            "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/scripts/"
+          rsync -az \
+            -e "ssh -i ~/.ssh/nearer_deploy -o IdentitiesOnly=yes" \
+            ./deploy/caddy.nearer.snippet \
+            "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/deploy/"
+
+          # Refresh image pins and port only — never overwrite a custom DOMAIN if present.
+          ssh -i ~/.ssh/nearer_deploy -o IdentitiesOnly=yes "${SSH_USER}@${SSH_HOST}" bash -s <<EOF
+          set -euo pipefail
+          cd '${DEPLOY_PATH}'
+          if [[ ! -f .env ]]; then
+            printf 'DOMAIN=nearer.example.com\nACME_EMAIL=\nAPP_PORT=3011\n' > .env
+          fi
+          grep -q '^APP_PORT=' .env && sed -i 's/^APP_PORT=.*/APP_PORT=3011/' .env || echo 'APP_PORT=3011' >> .env
+          grep -q '^FRONTEND_IMAGE=' .env && sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=${FRONTEND_IMAGE}|" .env || echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> .env
+          grep -q '^LINK_PREVIEW_IMAGE=' .env && sed -i "s|^LINK_PREVIEW_IMAGE=.*|LINK_PREVIEW_IMAGE=${LINK_PREVIEW_IMAGE}|" .env || echo "LINK_PREVIEW_IMAGE=${LINK_PREVIEW_IMAGE}" >> .env
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          chmod +x scripts/server-deploy.sh
+          DEPLOY_PATH='${DEPLOY_PATH}' COMPOSE_PROJECT_NAME=nearer ./scripts/server-deploy.sh
+          EOF

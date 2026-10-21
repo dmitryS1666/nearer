@@ -22,10 +22,36 @@ import {
   getInstallId
 } from './domain/analytics.js';
 import { decorateQuestion } from './domain/questions.js';
+import { migrateState } from './domain/schema.js';
+import { emptyDeviceLink, linkFromPairResult, normalizeDeviceLink } from './domain/link.js';
+import { buildLocalBackup, restoreLocalBackup } from './domain/backup.js';
+import { escapeHtml } from './ui/escapeHtml.js';
+import { ProductMetadataProvider } from './platform/metadata/productMetadata.js';
+import { IncomingShareHandler } from './platform/share/incomingShare.js';
+import { WfolioPhotoProvider } from './integrations/wfolio/wfolio.js';
+import { renderOurs, renderList, bindOurs, bindList } from './components/lists/ours.js';
+import { renderMoments, renderMomentEditor, bindMomentEditor, bindMomentFavorites } from './components/moments/moments.js';
+import { renderLife, bindLife } from './components/history/life.js';
+import { renderShare, bindShare } from './components/share/shareInbox.js';
+import { renderTodayArchive } from './components/today/todayArchive.js';
+import { renderPhotoSettings } from './components/settings/photos.js';
+import { renderDeviceLink, renderLocalBackup } from './components/settings/link.js';
+import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
 import './styles.css';
 
+const bootParams = new URLSearchParams(location.search);
 let state = structuredClone(initialState);
-let screen = new URLSearchParams(location.search).get('screen') || 'today';
+let screen = bootParams.get('screen') || 'today';
+let route = {
+  listId: bootParams.get('list'),
+  momentId: bootParams.get('moment'),
+  shareUrl: bootParams.get('url'),
+  shareTitle: bootParams.get('title'),
+  shareText: bootParams.get('text')
+};
+let archiveUi = freshArchiveUi();
+const metadataProvider = new ProductMetadataProvider();
+const wfolio = new WfolioPhotoProvider({ metadataProvider });
 let installPrompt = null;
 let versionTapCount = 0;
 let versionTapTimer = null;
@@ -136,14 +162,27 @@ function streakBubble() {
   return `<div class="streak-bubble" aria-label="Серия: ${state.streak} ${label}">${uiIcon('flame')}<div class="streak-meta"><b>${state.streak}</b><small>${label}</small></div></div>`;
 }
 
-function escapeHtml(value = '') {
-  return String(value).replace(/[&<>'"]/g, (ch) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    "'": '&#39;',
-    '"': '&quot;'
-  })[ch]);
+function freshArchiveUi() {
+  return { sheet: null, draft: null, editingItemId: null, prompt: null, momentDraft: null, pendingMedia: [], armDraft: false, query: '', reviewYear: null };
+}
+
+function makeCtx() {
+  return {
+    state,
+    role: state.currentRole,
+    route,
+    ui: archiveUi,
+    toast,
+    metadataProvider,
+    wfolio,
+    shareHandler: new IncomingShareHandler({ getLists: () => state.lists || [] }),
+    nav,
+    rerender: render,
+    async commit() {
+      await saveState();
+      render();
+    }
+  };
 }
 
 function toast(message, kind = 'default') {
@@ -176,10 +215,34 @@ function setRole(role) {
   render();
 }
 
-function nav(to) {
+function nav(to, extra = {}) {
   screen = to;
+  archiveUi.sheet = null;
+  if (to === 'list') route.listId = extra.listId || null;
+  else route.listId = null;
+  if (to === 'moment') {
+    route.momentId = extra.momentId || 'new';
+    if (route.momentId === 'new' && !archiveUi.armDraft) {
+      archiveUi.momentDraft = null;
+      archiveUi.pendingMedia = [];
+    }
+    archiveUi.armDraft = false;
+  } else route.momentId = null;
+  if (to === 'share') {
+    if ('shareUrl' in extra) route.shareUrl = extra.shareUrl;
+    if ('shareTitle' in extra) route.shareTitle = extra.shareTitle;
+    if ('shareText' in extra) route.shareText = extra.shareText;
+  }
   const url = new URL(location.href);
+  url.search = '';
   url.searchParams.set('screen', to);
+  if (to === 'list' && route.listId) url.searchParams.set('list', route.listId);
+  if (to === 'moment' && route.momentId) url.searchParams.set('moment', route.momentId);
+  if (to === 'share') {
+    if (route.shareUrl) url.searchParams.set('url', route.shareUrl);
+    if (route.shareTitle) url.searchParams.set('title', route.shareTitle);
+    if (route.shareText) url.searchParams.set('text', route.shareText);
+  }
   history.replaceState({}, '', url);
   if (to === 'garden') track('garden_viewed');
   if (to === 'history') track('history_viewed');
@@ -208,10 +271,12 @@ function showErrorScreen(err) {
 function shell(content, active = screen) {
   const showRoles = state.testLabUnlocked;
   const fitClass = active === 'today' ? ' today-fit' : '';
+  const tab = active === 'list' || active === 'share' ? 'ours' : active === 'moment' ? 'moments' : active;
   return `
     <div class="aurora aurora-one"></div><div class="aurora aurora-two"></div>
     <header class="topbar">
       <button class="brand" data-nav="today" aria-label="На главную" id="brand-logo"><span class="brand-mark">♥</span><span>Ближе</span></button>
+      <div class="top-actions">
       ${
         showRoles
           ? `<div class="role-switch">
@@ -220,15 +285,21 @@ function shell(content, active = screen) {
       </div>`
           : `<div class="top-quiet"><span>для двоих</span></div>`
       }
+      <button class="icon-btn ${active === 'settings' ? 'active' : ''}" data-nav="settings" type="button" aria-label="Настройки">⚙</button>
+      </div>
     </header>
     <main class="main-content${fitClass}">${content}</main>
     <nav class="tabbar" aria-label="Основная навигация">
-      ${tabButton('today', '♡', 'Сегодня', active)}
-      ${tabButton('garden', '♧', 'Сад', active)}
-      ${tabButton('history', '◷', 'История', active)}
-      ${tabButton('packs', '✦', 'Плюс', active)}
-      ${tabButton('settings', '⚙', 'Настройки', active)}
+      ${tabButton('today', '♡', 'Сегодня', tab)}
+      ${tabButton('ours', '✦', 'Наше', tab)}
+      ${tabButton('moments', momentTabIcon(), 'Моменты', tab)}
+      ${tabButton('garden', '♧', 'Сад', tab)}
+      ${tabButton('history', '◷', 'История', tab)}
     </nav>`;
+}
+
+function momentTabIcon() {
+  return `<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.7" cy="9" r="1.15" fill="currentColor"/><path d="M6.8 15.2l2.5-2.6a1 1 0 0 1 1.45 0l1.35 1.4 1.15-1.25a1 1 0 0 1 1.5 0L17.2 15.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
 function tabButton(id, icon, label, active) {
@@ -355,12 +426,19 @@ function todayView() {
 
   return shell(`
     <section class="dashboard-head">
-      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>Время для&nbsp;вас двоих</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
+      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>${escapeHtml(todayGreeting())}</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
       ${streakBubble()}
     </section>
     ${notificationNudge()}
     ${body}
+    ${renderTodayArchive(state)}
   `);
+}
+
+function todayGreeting() {
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
+  return `${hello} ❤️`;
 }
 
 function answerCard(name, text, tone) {
@@ -445,41 +523,6 @@ function gardenView() {
   );
 }
 
-function historyView() {
-  const entries = [...state.history].reverse();
-  const visible = state.plus ? entries : entries.slice(0, 30);
-  return shell(
-    `
-    <section class="page-head"><div><div class="eyebrow">То, что остаётся</div><h1>Наша история</h1><p>Не архив сообщений, а маленькие моменты, на которые приятно оглянуться.</p></div></section>
-    ${
-      visible.length
-        ? `<div class="timeline">${visible.map((item) => historyCard(item)).join('')}</div>`
-        : `<section class="empty-state glass-card"><div>◷</div><h2>История только начинается</h2><p>После первого завершённого вопроса здесь появится ваша первая запись.</p><button class="primary" data-nav="today">Ответить сегодня →</button></section>`
-    }
-    ${
-      !state.plus && state.history.length >= 2
-        ? `<section class="soft-paywall"><div><b>Полная история — в «Ближе Плюс»</b><p>Больше тем, развитие сада и будущие воспоминания.</p></div><button class="ghost" data-nav="packs">Смотреть Плюс</button></section>`
-        : ''
-    }
-  `,
-    'history'
-  );
-}
-
-function historyCard(item) {
-  return `<article class="timeline-item">
-    <div class="timeline-rail" aria-hidden="true"><span class="timeline-dot"></span></div>
-    <div class="timeline-card">
-      <div class="question-meta"><span class="history-date">${escapeHtml(item.date)}</span><span class="pill">${escapeHtml(item.category)}</span></div>
-      <h3>${escapeHtml(item.question)}</h3>
-      <div class="mini-answers">
-        <div><b>${escapeHtml(state.profile.name)}</b><p>${escapeHtml(item.answers.a?.text || '—')}</p></div>
-        <div><b>${escapeHtml(state.profile.partnerName)}</b><p>${escapeHtml(item.answers.b?.text || '—')}</p></div>
-      </div>
-      ${item.reaction ? `<div class="history-reaction">${item.reaction}</div>` : ''}
-    </div>
-  </article>`;
-}
 
 function packsView() {
   const packs = [
@@ -520,6 +563,8 @@ function settingsView() {
       <button class="secondary" id="save-names">Сохранить имена</button>
     </section>
 
+    ${renderDeviceLink(state)}
+
     <section class="settings-card" id="settings-notifications">
       <h2>Уведомления</h2>
       ${prefToggle('daily', 'Ежедневный вопрос', 'Мягкое напоминание один раз в день')}
@@ -534,9 +579,12 @@ function settingsView() {
       <p class="microcopy">${isNative ? 'Напоминания работают через локальные уведомления устройства.' : 'В браузере доступны уведомления страницы; фоновый push требует отдельной настройки.'}</p>
     </section>
 
+    ${renderPhotoSettings(state)}
+    ${renderLocalBackup()}
+
     <section class="settings-card">
       <h2>О тестовой версии</h2>
-      <p>Эта тестовая версия хранит данные локально на этом устройстве и не синхронизирует их с другим человеком.</p>
+      <p>Ответы и история хранятся на этом телефоне. Сервер, если им пользуются, знает только связь двух устройств и не получает тексты.</p>
       <div class="diagnostic-list">
         <div><span>Версия</span><b id="version-tap">${config.appName} ${config.versionName}</b></div>
         <div><span>Сборка</span><b>${config.buildLabel}</b></div>
@@ -546,6 +594,7 @@ function settingsView() {
       <div class="button-row wrap">
         <button class="secondary" id="feedback-btn">Оставить отзыв о тестовой версии</button>
         <button class="secondary" id="about-privacy">Подробнее</button>
+        <button class="secondary" type="button" data-nav="packs">Ближе Плюс</button>
       </div>
     </section>
 
@@ -615,10 +664,16 @@ function prefToggle(key, title, subtitle) {
 function render() {
   try {
     if (!state.onboarded) return renderOnboarding();
+    const ctx = makeCtx();
     const views = {
       today: todayView,
       garden: gardenView,
-      history: historyView,
+      history: () => shell(renderLife(ctx), 'history'),
+      ours: () => shell(renderOurs(ctx), 'ours'),
+      list: () => shell(renderList(ctx), 'list'),
+      moments: () => shell(renderMoments(ctx), 'moments'),
+      moment: () => shell(renderMomentEditor(ctx), 'moment'),
+      share: () => shell(renderShare(ctx), 'share'),
       packs: packsView,
       settings: settingsView
     };
@@ -634,7 +689,12 @@ function render() {
 }
 
 function bindCommon() {
-  document.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => nav(el.dataset.nav)));
+  document.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => {
+    const extra = {};
+    if (el.dataset.list) extra.listId = el.dataset.list;
+    if (el.dataset.moment) extra.momentId = el.dataset.moment;
+    nav(el.dataset.nav, extra);
+  }));
   document.querySelectorAll('[data-role]').forEach((el) => el.addEventListener('click', () => setRole(el.dataset.role)));
 
   const logo = document.getElementById('brand-logo');
@@ -652,9 +712,16 @@ function bindCommon() {
 }
 
 function bindScreen() {
+  const ctx = makeCtx();
   if (screen === 'today') bindToday();
   if (screen === 'packs') bindPlus();
   if (screen === 'settings') bindSettings();
+  if (screen === 'ours') bindOurs(ctx);
+  if (screen === 'list') bindList(ctx);
+  if (screen === 'moments') bindMomentFavorites(ctx);
+  if (screen === 'moment') bindMomentEditor(ctx);
+  if (screen === 'history') bindLife(ctx);
+  if (screen === 'share') bindShare(ctx);
 }
 
 function bindPlus() {
@@ -767,7 +834,9 @@ async function completeDay() {
 async function resetAllData() {
   demoPartner.cancel();
   await coupleRepository.clearAllData();
-  state = structuredClone(initialState);
+  state = migrateState(structuredClone(initialState));
+  archiveUi = freshArchiveUi();
+  route = { listId: null, momentId: null, shareUrl: null, shareTitle: null, shareText: null };
   await track('app_reset');
   // analytics may be cleared with IDB — re-init quietly
   try {
@@ -814,6 +883,38 @@ async function refreshNotificationNudge() {
   nudge.hidden = isReminderNudgeDismissed(status);
 }
 
+async function refreshDeviceLink(announce) {
+  const token = state.deviceLink?.deviceToken;
+  if (!token) return;
+  try {
+    const status = await fetchPairStatus(token);
+    const previous = state.deviceLink.status;
+    state.deviceLink = normalizeDeviceLink({
+      ...state.deviceLink,
+      pairId: status.pairId,
+      role: status.role,
+      status: status.status,
+      linkedAt: status.linkedAt,
+      inviteCode: status.status === 'linked' ? null : state.deviceLink.inviteCode,
+      inviteExpiresAt: status.status === 'linked' ? null : state.deviceLink.inviteExpiresAt
+    });
+    if (state.deviceLink.status !== previous) {
+      await saveState();
+      if (screen === 'settings') render();
+      return;
+    }
+    if (announce) toast(status.status === 'linked' ? 'Второй телефон уже подключился' : 'Пока ждём второй телефон');
+  } catch (error) {
+    if (error.code === 'unauthorized') {
+      state.deviceLink = emptyDeviceLink();
+      await saveState();
+      if (screen === 'settings') render();
+      return;
+    }
+    if (announce) toast(pairErrorCopy(error), 'warn');
+  }
+}
+
 function bindSettings() {
   document.getElementById('save-names')?.addEventListener('click', async () => {
     state.profile.name = document.getElementById('name-setting').value.trim() || 'Ты';
@@ -851,6 +952,21 @@ function bindSettings() {
     if (screen === 'today') render();
   });
   document.getElementById('enable-push')?.addEventListener('click', enableNotifications);
+  document.querySelectorAll('input[name="photo-storage"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      if (!input.checked) return;
+      coupleRepository.setPhotoStorage(state, input.value);
+      await saveState();
+      toast(input.value === 'links' ? 'Сохраняем только ссылки' : input.value === 'original' ? 'Будем хранить оригиналы' : 'Будем хранить превью');
+    });
+  });
+  document.getElementById('clear-photo-cache')?.addEventListener('click', async () => {
+    if (!confirm('Очистить локальный кэш фотографий? Сами моменты останутся.')) return;
+    const result = coupleRepository.clearLocalPhotoCache(state);
+    await saveState();
+    render();
+    toast(result.freed ? 'Локальные фото очищены' : 'Кэш уже пуст');
+  });
   if (pendingSettingsFocus === 'notifications') {
     pendingSettingsFocus = null;
     requestAnimationFrame(() => {
@@ -868,6 +984,68 @@ function bindSettings() {
       toast('Уведомление отправлено');
     } else toast('Нет разрешения', 'warn');
   });
+  document.getElementById('pair-create')?.addEventListener('click', async () => {
+    try {
+      state.deviceLink = linkFromPairResult(await createPair());
+      await saveState();
+      render();
+    } catch (error) {
+      toast(pairErrorCopy(error), 'warn');
+    }
+  });
+  document.getElementById('pair-join')?.addEventListener('click', async () => {
+    const code = document.getElementById('pair-code')?.value || '';
+    try {
+      state.deviceLink = linkFromPairResult(await joinPair(code));
+      await saveState();
+      toast('Телефоны связаны');
+      render();
+    } catch (error) {
+      toast(pairErrorCopy(error), 'warn');
+    }
+  });
+  document.getElementById('pair-refresh')?.addEventListener('click', () => refreshDeviceLink(true));
+  document.getElementById('pair-leave')?.addEventListener('click', async () => {
+    if (!confirm('Отвязать этот телефон? Ответы на нём останутся.')) return;
+    try {
+      if (state.deviceLink?.deviceToken) await leavePair(state.deviceLink.deviceToken);
+      state.deviceLink = emptyDeviceLink();
+      await saveState();
+      render();
+    } catch (error) {
+      toast(pairErrorCopy(error), 'warn');
+    }
+  });
+  document.getElementById('backup-download')?.addEventListener('click', () => {
+    const payload = buildLocalBackup(state);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `blizhe-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast('Копия сохранена файлом');
+  });
+  document.getElementById('backup-restore')?.addEventListener('click', () => {
+    document.getElementById('backup-file')?.click();
+  });
+  document.getElementById('backup-file')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!confirm('Вернуть ответы из файла? Текущая история на этом телефоне будет заменена копией.')) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      state = restoreLocalBackup(state, payload);
+      await saveState();
+      toast('Копия возвращена');
+      render();
+    } catch {
+      toast('Файл не похож на копию Ближе', 'warn');
+    }
+  });
+  refreshDeviceLink(false);
   document.getElementById('reset-demo')?.addEventListener('click', async () => {
     if (!confirm('Сбросить демо-данные? Все локальные ответы и прогресс будут удалены.')) return;
     if (!confirm('Точно удалить все данные на этом устройстве?')) return;
@@ -876,7 +1054,7 @@ function bindSettings() {
   document.getElementById('feedback-btn')?.addEventListener('click', sendFeedback);
   document.getElementById('about-privacy')?.addEventListener('click', () => {
     alert(
-      'О тестовой версии\n\nЭта тестовая версия хранит данные локально на этом устройстве и не синхронизирует их с другим человеком.\n\nНет аккаунта, рекламных идентификаторов, контактов и геолокации.'
+      'О тестовой версии\n\nОтветы, моменты и сад хранятся на этом телефоне.\n\nСервер связи, если он включён, хранит только код пары и метки двух устройств. Тексты туда не отправляются.\n\nНет рекламных идентификаторов, контактов и геолокации.'
     );
   });
 
@@ -1092,6 +1270,21 @@ async function setupNativeShell() {
       });
       App.addListener('appStateChange', ({ isActive }) => {
         if (isActive) track('app_open', { resume: true });
+      });
+      App.addListener('appUrlOpen', ({ url }) => {
+        try {
+          const opened = new URL(url);
+          const shared = opened.searchParams.get('url') || opened.searchParams.get('text');
+          if (opened.searchParams.get('screen') === 'share' || shared) {
+            nav('share', {
+              shareUrl: opened.searchParams.get('url') || '',
+              shareTitle: opened.searchParams.get('title') || '',
+              shareText: opened.searchParams.get('text') || ''
+            });
+          }
+        } catch {
+          // ignore malformed native urls
+        }
       });
     } catch (err) {
       console.warn('App plugin setup skipped', err);

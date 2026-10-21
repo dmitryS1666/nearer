@@ -20,8 +20,7 @@ jobs:
   frontend:
     name: Frontend test & build
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on:
-      group: build
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -38,18 +37,18 @@ jobs:
 
   docker:
     name: Docker build
-    runs-on:
-      group: build
+    runs-on: ubuntu-latest
     needs: [frontend]
     timeout-minutes: 30
     env:
       FRONTEND_IMAGE: nearer-frontend:ci
+      LINK_PREVIEW_IMAGE: nearer-link-preview:ci
+      APP_PORT: "3011"
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - name: Validate Docker Compose configuration
         run: docker compose --env-file /dev/null config --quiet
-      # ponytail: use the daemon builder; restore docker-container only on compatible runner kernels/runtimes.
       - name: Build Docker images
         run: docker compose --env-file /dev/null build --builder default --pull

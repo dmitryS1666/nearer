@@ -112,37 +112,45 @@ Phone/Browser
 
 Installability PWA требует **HTTPS** (или localhost).
 
+## Production на regiuslab-de
+
+- Каталог: **`/regiuslab/nearer`**
+- Compose-проект: **`nearer`** (чужие стеки не трогаем)
+- Порт: **`3011`** (`3007` занят izokom)
+- Ручной деплой только так: `DEPLOY_PATH=/regiuslab/nearer ./scripts/server-deploy.sh`
+- Caddy общий (`/home/artem/caddy`) **не правим автоматически** — сниппет в `deploy/caddy.nearer.snippet` для ручного merge
+
+Запрещено при деплое nearer: `docker compose down` без `-p nearer`, `docker system prune`, stop/rm чужих контейнеров, правки чужих compose/Caddyfile.
+
 ## CI/CD
 
-- [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) проверяет PR в `main`: unit-тесты, production-сборку Vite и сборку Docker-образа. Этот же workflow вызывается из Deploy перед публикацией.
-- [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) запускается на push в `main` или вручную через **Actions → Deploy → Run workflow → main**. После успешного CI собирает и публикует образ в GHCR, делает `compose pull` и обновляет приложение на production runner'е.
+- [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — GitHub-hosted (`ubuntu-latest`): тесты, Vite build, Docker build.
+- [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) — после CI: push образов в GHCR → Tailscale → SSH → `/regiuslab/nearer` → `scripts/server-deploy.sh` только для проекта `nearer`.
 
-### Runner'ы
+Self-hosted runners org **Regiuslab** (`pool: build`) к личному `dmitryS1666/nearer` не подключены — поэтому Deploy идёт через GitHub-hosted + Tailscale + SSH.
 
-1. Для CI нужен Linux self-hosted runner в группе **`build`**, с Docker Engine и Compose v2. Node.js 22 устанавливается actions. Нужен доступ к GitHub, npm и registry базовых Docker-образов.
-2. Для Deploy тоже группа **`build`**. Runner должен быть установлен **на сервере приложения**, с доступом к Docker и GHCR. Дайте репозиторию доступ к этой группе. Если в группе несколько серверов, ограничьте `runs-on.labels` меткой нужного сервера.
-3. Compose должен поддерживать `build --builder`, `COMPOSE_ENV_FILES`, `up --wait` и `--wait-timeout`; используйте актуальный Compose v2. Пользователю runner'а нужен доступ к Docker daemon без `sudo`.
-4. Деплои сериализованы; имя Compose-проекта всегда **`nearer`**.
+### Secrets (environment `production`)
 
-CI не выполняет код PR из fork на self-hosted runner'ах. PR из самого репозитория должны поступать от доверенных разработчиков; CI runner'ы лучше отделять от production-сервера.
-
-CI и Deploy собирают образы через встроенный Docker builder (`compose build --builder default`). CI использует локальный тег `nearer-frontend:ci`.
-
-### Файл окружения
-
-Compose читает `.env` рядом с `docker-compose.yml` в checkout runner'а. Workflow задаёт `COMPOSE_ENV_FILES=.env`. Отсутствие файла останавливает деплой при проверке конфигурации.
-
-| Переменная в `.env` | Значение |
+| Secret | Назначение |
 | --- | --- |
-| `DOMAIN` | Публичный hostname, например `nearer.example.com` |
-| `ACME_EMAIL` | Email для Let's Encrypt (если Caddy включён) |
-| `APP_PORT` | Порт frontend на сервере, по умолчанию `3007` |
+| `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | Tailscale OAuth client с тегом `tag:ci` |
+| `NEARER_SSH_HOST` | `100.94.144.13` |
+| `NEARER_SSH_USER` | `regius` |
+| `NEARER_SSH_KEY` | приватный ключ деплоя (без пароля) |
 
-Для GHCR используется встроенный `GITHUB_TOKEN` с `packages: write` только в deploy job. Отдельный PAT и SSH secrets не нужны. Если packages уже существуют, разрешите этому репозиторию запись в **Manage Actions access**.
+На сервере публичный ключ — в `~regius/.ssh/authorized_keys`. Пользователь `regius` должен быть в группе `docker`.
 
-Образы публикуются как `ghcr.io/<owner>/nearer/frontend:<commit-sha>`. Namespace приводится к нижнему регистру. Тег — SHA коммита, без `latest`.
+### Файл окружения на сервере
 
-В текущем Compose Caddy закомментирован, frontend слушает `APP_PORT` по HTTP. Настройте внешний TLS reverse proxy на этот порт.
+`/regiuslab/nearer/.env`:
+
+| Переменная | Значение |
+| --- | --- |
+| `DOMAIN` | будущий hostname (пока можно placeholder) |
+| `APP_PORT` | **`3011`** |
+| `FRONTEND_IMAGE` / `LINK_PREVIEW_IMAGE` | пины из GHCR после CI |
+
+Образы: `ghcr.io/<owner>/nearer/frontend:<sha>` и `.../link-preview:<sha>`.
 
 ### Edge / OpenResty: не кешируйте Service Worker
 

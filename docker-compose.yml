@@ -1,11 +1,30 @@
 services:
+  link-preview:
+    image: ${LINK_PREVIEW_IMAGE:-nearer-link-preview:local}
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      PAIR_STORE: /data/pairs.json
+    volumes:
+      - pair-data:/data
+    expose:
+      - "8787"
+    networks:
+      - tish
+
   frontend:
     image: ${FRONTEND_IMAGE:-nearer-frontend:local}
     build:
       context: .
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-3007}:80"
+      # Default 3011 on regiuslab-de (3007 is used by another stack).
+      - "${APP_PORT:-3011}:80"
+    depends_on:
+      link-preview:
+        condition: service_healthy
     networks:
       - tish
 
@@ -33,6 +52,9 @@ services:
 networks:
   tish:
     driver: bridge
+
+volumes:
+  pair-data:
 
 # volumes:
 #   caddy_data:

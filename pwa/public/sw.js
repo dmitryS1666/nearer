@@ -1,4 +1,6 @@
-const CACHE = 'blizhe-shell-v2';
+// Shell cache only. IndexedDB (answers, history, moments) is never deleted here,
+// so an update of this PWA on the same address keeps data already on the phone.
+const CACHE = 'blizhe-shell-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -26,6 +28,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
 
   if (event.request.mode === 'navigate') {
     event.respondWith((async () => {

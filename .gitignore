@@ -1,4 +1,5 @@
 node_modules/
+data/
 pwa/www/
 www/
 dist/
@@ -41,3 +42,5 @@ test-results/
 pwa/scripts/layout-shots/
 scripts/layout-shots/
 artifacts/visual/
+
+.deploy-secrets/
