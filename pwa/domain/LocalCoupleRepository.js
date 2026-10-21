@@ -29,8 +29,7 @@ export { categoryLabel };
 
 /**
  * CoupleRepository abstraction.
- * Current: LocalCoupleRepository (IndexedDB)
- * Future: SupabaseCoupleRepository
+ * Current: LocalCoupleRepository (IndexedDB) + optional E2E pair sync (ciphertext on server).
  *
  * UI must not know where data is physically stored.
  */

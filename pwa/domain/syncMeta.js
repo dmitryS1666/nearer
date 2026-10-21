@@ -1,4 +1,4 @@
-/** Fields reserved for a future SupabaseCoupleRepository. Sync itself is not implemented. */
+/** Entity metadata used by encrypted pair sync (LWW via updatedAt + version). */
 export function newEntity(fields, now) {
   return {
     ...fields,

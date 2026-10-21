@@ -8,7 +8,13 @@ export function emptyDeviceLink() {
     status: 'solo',
     linkedAt: null,
     inviteCode: null,
-    inviteExpiresAt: null
+    inviteExpiresAt: null,
+    publicKey: null,
+    privateKeyJwk: null,
+    peerPublicKey: null,
+    syncRevision: 0,
+    lastSyncAt: null,
+    syncError: null
   };
 }
 
@@ -22,18 +28,28 @@ export function normalizeDeviceLink(link) {
   next.linkedAt = typeof link.linkedAt === 'string' ? link.linkedAt : null;
   next.inviteCode = typeof link.inviteCode === 'string' ? link.inviteCode : null;
   next.inviteExpiresAt = typeof link.inviteExpiresAt === 'string' ? link.inviteExpiresAt : null;
+  next.publicKey = typeof link.publicKey === 'string' ? link.publicKey : null;
+  next.privateKeyJwk = link.privateKeyJwk && typeof link.privateKeyJwk === 'object' ? link.privateKeyJwk : null;
+  next.peerPublicKey = typeof link.peerPublicKey === 'string' ? link.peerPublicKey : null;
+  next.syncRevision = Number.isFinite(Number(link.syncRevision)) ? Number(link.syncRevision) : 0;
+  next.lastSyncAt = typeof link.lastSyncAt === 'string' ? link.lastSyncAt : null;
+  next.syncError = typeof link.syncError === 'string' ? link.syncError : null;
   if (!next.deviceToken) return emptyDeviceLink();
   return next;
 }
 
-export function linkFromPairResult(result) {
+export function linkFromPairResult(result, identity = {}) {
   return normalizeDeviceLink({
     pairId: result.pairId,
     deviceToken: result.deviceToken,
     role: result.role,
     status: result.status,
-    linkedAt: result.status === 'linked' ? new Date().toISOString() : null,
+    linkedAt: result.linkedAt || (result.status === 'linked' ? new Date().toISOString() : null),
     inviteCode: result.code || null,
-    inviteExpiresAt: result.expiresAt || null
+    inviteExpiresAt: result.expiresAt || null,
+    publicKey: identity.publicKey || result.publicKey || null,
+    privateKeyJwk: identity.privateKeyJwk || null,
+    peerPublicKey: result.peerPublicKey || null,
+    syncRevision: result.syncRevision || 0
   });
 }

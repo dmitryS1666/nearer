@@ -5,6 +5,11 @@ import { dirname } from 'node:path';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 6;
 const TOKEN_BYTES = 32;
+/** P-256 SPKI as base64url is ~120 chars; allow a little headroom. */
+const PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{80,200}$/;
+const IV_RE = /^[A-Za-z0-9_-]{16,32}$/;
+const CIPHER_RE = /^[A-Za-z0-9_-]+$/;
+export const MAX_SYNC_CIPHER_CHARS = 700_000;
 
 export function hashSecret(value) {
   return createHash('sha256').update(String(value)).digest('hex');
@@ -26,6 +31,10 @@ export function normalizePairCode(code) {
   return String(code || '').toUpperCase().replace(/[^A-Z2-9]/g, '');
 }
 
+export function isPairPublicKey(value) {
+  return typeof value === 'string' && PUBLIC_KEY_RE.test(value);
+}
+
 function loadPairs(filePath) {
   if (!filePath) return [];
   try {
@@ -36,9 +45,14 @@ function loadPairs(filePath) {
   }
 }
 
+function peerPublicKeyFor(pair, role) {
+  if (role === 'a') return pair.partnerPublicKey || null;
+  return pair.creatorPublicKey || null;
+}
+
 /**
- * Pairing records only: code hash, device token hashes, expiry.
- * Answers and names are never accepted here.
+ * Pairing + opaque encrypted sync blobs only.
+ * Plaintext couple data is never accepted or stored.
  */
 export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs = 20 * 60 * 1000, maxPairs = 5000 } = {}) {
   let pairs = loadPairs(filePath);
@@ -61,11 +75,23 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
   function findByToken(token) {
     if (!token) return null;
     const tokenHash = hashSecret(token);
-    return pairs.find((pair) => hashesEqual(pair.creatorTokenHash, tokenHash) || (pair.partnerTokenHash && hashesEqual(pair.partnerTokenHash, tokenHash))) || null;
+    return (
+      pairs.find(
+        (pair) =>
+          hashesEqual(pair.creatorTokenHash, tokenHash) ||
+          (pair.partnerTokenHash && hashesEqual(pair.partnerTokenHash, tokenHash))
+      ) || null
+    );
+  }
+
+  function roleFor(pair, token) {
+    const tokenHash = hashSecret(token);
+    return hashesEqual(pair.creatorTokenHash, tokenHash) ? 'a' : 'b';
   }
 
   return {
-    create(at = now()) {
+    create(at = now(), { publicKey } = {}) {
+      if (!isPairPublicKey(publicKey)) return { error: 'public_key_required' };
       if (prune(at)) persist();
       const code = makeCode();
       const deviceToken = randomBytes(TOKEN_BYTES).toString('base64url');
@@ -75,6 +101,12 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
         expiresAt: at + ttlMs,
         creatorTokenHash: hashSecret(deviceToken),
         partnerTokenHash: null,
+        creatorPublicKey: publicKey,
+        partnerPublicKey: null,
+        syncCiphertext: null,
+        syncIv: null,
+        syncRevision: 0,
+        syncUpdatedAt: null,
         createdAt: at,
         linkedAt: null
       };
@@ -86,37 +118,101 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
         deviceToken,
         expiresAt: new Date(pair.expiresAt).toISOString(),
         role: 'a',
-        status: 'waiting'
+        status: 'waiting',
+        publicKey,
+        peerPublicKey: null,
+        syncRevision: 0
       };
     },
 
-    join(rawCode, at = now()) {
+    join(rawCode, at = now(), { publicKey } = {}) {
+      if (!isPairPublicKey(publicKey)) return { error: 'public_key_required' };
       if (prune(at)) persist();
       const code = normalizePairCode(rawCode);
-      if (code.length !== CODE_LENGTH) return null;
+      if (code.length !== CODE_LENGTH) return { error: 'code_invalid' };
       const codeHash = hashSecret(code);
-      const pair = pairs.find((item) => item.codeHash && hashesEqual(item.codeHash, codeHash) && !item.partnerTokenHash && item.expiresAt > at);
-      if (!pair) return null;
+      const pair = pairs.find(
+        (item) => item.codeHash && hashesEqual(item.codeHash, codeHash) && !item.partnerTokenHash && item.expiresAt > at
+      );
+      if (!pair) return { error: 'code_invalid' };
+      if (pair.creatorPublicKey === publicKey) return { error: 'public_key_reuse' };
       const deviceToken = randomBytes(TOKEN_BYTES).toString('base64url');
       pair.partnerTokenHash = hashSecret(deviceToken);
+      pair.partnerPublicKey = publicKey;
       pair.codeHash = null;
       pair.linkedAt = at;
       persist();
-      return { pairId: pair.id, deviceToken, role: 'b', status: 'linked' };
+      return {
+        pairId: pair.id,
+        deviceToken,
+        role: 'b',
+        status: 'linked',
+        publicKey,
+        peerPublicKey: pair.creatorPublicKey,
+        syncRevision: pair.syncRevision || 0,
+        linkedAt: new Date(pair.linkedAt).toISOString()
+      };
     },
 
     me(token, at = now()) {
       const pair = findByToken(token);
       if (!pair) return null;
       if (!pair.partnerTokenHash && pair.expiresAt <= at) return null;
-      const tokenHash = hashSecret(token);
-      const role = hashesEqual(pair.creatorTokenHash, tokenHash) ? 'a' : 'b';
+      const role = roleFor(pair, token);
       const linked = Boolean(pair.partnerTokenHash);
       return {
         pairId: pair.id,
         role,
         status: linked ? 'linked' : 'waiting',
-        linkedAt: pair.linkedAt ? new Date(pair.linkedAt).toISOString() : null
+        linkedAt: pair.linkedAt ? new Date(pair.linkedAt).toISOString() : null,
+        peerPublicKey: linked ? peerPublicKeyFor(pair, role) : null,
+        syncRevision: pair.syncRevision || 0
+      };
+    },
+
+    getSync(token, at = now()) {
+      const pair = findByToken(token);
+      if (!pair) return { error: 'unauthorized' };
+      if (!pair.partnerTokenHash) return { error: 'not_linked' };
+      if (!pair.partnerTokenHash && pair.expiresAt <= at) return { error: 'unauthorized' };
+      return {
+        revision: pair.syncRevision || 0,
+        ciphertext: pair.syncCiphertext || null,
+        iv: pair.syncIv || null,
+        updatedAt: pair.syncUpdatedAt ? new Date(pair.syncUpdatedAt).toISOString() : null
+      };
+    },
+
+    putSync(token, body, at = now()) {
+      const pair = findByToken(token);
+      if (!pair) return { error: 'unauthorized' };
+      if (!pair.partnerTokenHash) return { error: 'not_linked' };
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid_json' };
+      const { ciphertext, iv, baseRevision } = body;
+      if (typeof ciphertext !== 'string' || !CIPHER_RE.test(ciphertext) || ciphertext.length > MAX_SYNC_CIPHER_CHARS) {
+        return { error: 'invalid_ciphertext' };
+      }
+      if (typeof iv !== 'string' || !IV_RE.test(iv)) return { error: 'invalid_iv' };
+      const expected = Number(baseRevision);
+      if (!Number.isInteger(expected) || expected < 0) return { error: 'invalid_revision' };
+      const current = pair.syncRevision || 0;
+      if (expected !== current) {
+        return {
+          error: 'conflict',
+          revision: current,
+          ciphertext: pair.syncCiphertext || null,
+          iv: pair.syncIv || null,
+          updatedAt: pair.syncUpdatedAt ? new Date(pair.syncUpdatedAt).toISOString() : null
+        };
+      }
+      pair.syncCiphertext = ciphertext;
+      pair.syncIv = iv;
+      pair.syncRevision = current + 1;
+      pair.syncUpdatedAt = at;
+      persist();
+      return {
+        revision: pair.syncRevision,
+        updatedAt: new Date(pair.syncUpdatedAt).toISOString()
       };
     },
 

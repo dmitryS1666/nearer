@@ -1,7 +1,7 @@
 # Развёртывание Ближе / Nearer (Docker + TLS)
 
-Стек: **Caddy** (HTTPS, опционально) → **nginx** (PWA).  
-Backend нет: local-first приложение, данные только на устройстве (IndexedDB).
+Стек: **Caddy** (HTTPS, опционально) → **nginx** (PWA) → тонкий `link-preview` (pairing + E2E sync blob).  
+Данные пары на сервере только как **ciphertext** (AES-GCM); ключ выводится через ECDH на телефонах. Расшифровка — только на устройствах (IndexedDB).
 
 ## Требования к серверу
 
@@ -146,7 +146,7 @@ Self-hosted runners org **Regiuslab** (`pool: build`) к личному `dmitryS
 
 | Переменная | Значение |
 | --- | --- |
-| `DOMAIN` | будущий hostname (пока можно placeholder) |
+| `DOMAIN` | `nearer.other.dev-regiuslab.by` |
 | `APP_PORT` | **`3011`** |
 | `FRONTEND_IMAGE` / `LINK_PREVIEW_IMAGE` | пины из GHCR после CI |
 

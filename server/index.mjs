@@ -38,7 +38,8 @@ const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
   if (path.startsWith('/api/pairs')) {
     try {
-      const raw = req.method === 'GET' || req.method === 'DELETE' ? '' : await readBody(req, 1024);
+      const bodyLimit = path === '/api/pairs/sync' && req.method === 'PUT' ? 768_000 : 4_096;
+      const raw = req.method === 'GET' || req.method === 'DELETE' ? '' : await readBody(req, bodyLimit);
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
       const result = pairService.handle({
         method: req.method,
@@ -49,9 +50,10 @@ const server = createServer(async (req, res) => {
       });
       res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(result.json));
-    } catch {
-      res.writeHead(400, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ error: 'invalid_json' }));
+    } catch (error) {
+      const status = error?.message === 'too_large' ? 413 : 400;
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ error: error?.message === 'too_large' ? 'too_large' : 'invalid_json' }));
     }
     return;
   }

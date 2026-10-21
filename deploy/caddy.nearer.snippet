@@ -1,11 +1,10 @@
-# Snippet for Artem's shared Caddy (/home/artem/caddy/Caddyfile).
-# DO NOT apply automatically — merge manually so other sites stay untouched.
-# Replace nearer.example.com with the real hostname after DNS A/AAAA → server.
+# Shared Caddy (/home/artem/caddy/Caddyfile) — merge manually.
+# Live hostname for nearer on regiuslab-de:
 
-# nearer.example.com {
-# 	encode gzip
-# 	reverse_proxy 172.17.0.1:3011 {
-# 		header_up Host {host}
-# 		header_up X-Real-IP {remote_host}
-# 	}
-# }
+nearer.other.dev-regiuslab.by {
+	encode gzip
+	reverse_proxy 172.17.0.1:3011 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}

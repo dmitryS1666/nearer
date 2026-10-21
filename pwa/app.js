@@ -25,6 +25,7 @@ import { decorateQuestion } from './domain/questions.js';
 import { migrateState } from './domain/schema.js';
 import { emptyDeviceLink, linkFromPairResult, normalizeDeviceLink } from './domain/link.js';
 import { buildLocalBackup, restoreLocalBackup } from './domain/backup.js';
+import { canSync, clearSyncKeyCache, runCoupleSync } from './domain/sync/coupleSync.js';
 import { escapeHtml } from './ui/escapeHtml.js';
 import { ProductMetadataProvider } from './platform/metadata/productMetadata.js';
 import { IncomingShareHandler } from './platform/share/incomingShare.js';
@@ -37,6 +38,7 @@ import { renderTodayArchive } from './components/today/todayArchive.js';
 import { renderPhotoSettings } from './components/settings/photos.js';
 import { renderDeviceLink, renderLocalBackup } from './components/settings/link.js';
 import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
+import { generatePairIdentity } from './platform/link/pairCrypto.js';
 import './styles.css';
 
 const bootParams = new URLSearchParams(location.search);
@@ -59,10 +61,61 @@ let gardenAnim = null; // { type: 'grow' | 'stage-up', stageId }
 let lastError = null;
 let revealAnimatedForKey = null;
 let pendingSettingsFocus = null;
+let syncTimer = null;
+let syncInFlight = false;
+let linkPollTimer = null;
 
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('blizhe-couple') : null;
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
+
+function isLivePair() {
+  return state.deviceLink?.status === 'linked';
+}
+
+function scheduleCoupleSync({ delay = 1800, announce = false } = {}) {
+  if (!canSync(state.deviceLink)) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncCoupleNow({ announce }).catch(() => {});
+  }, delay);
+}
+
+async function syncCoupleNow({ announce = false } = {}) {
+  if (!canSync(state.deviceLink) || syncInFlight) return;
+  syncInFlight = true;
+  try {
+    const result = await runCoupleSync(state, {
+      saveState: async (next) => {
+        state = next;
+        await coupleRepository.saveState(state);
+        channel?.postMessage({ type: 'STATE', state });
+      }
+    });
+    if (result?.state) state = result.state;
+    if (announce) toast('Синхронизировано');
+    if (screen === 'settings') render();
+  } catch (error) {
+    state.deviceLink = { ...state.deviceLink, syncError: error.code || 'sync_failed' };
+    await coupleRepository.saveState(state);
+    if (announce) toast(pairErrorCopy(error), 'warn');
+    if (screen === 'settings') render();
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+function ensureLinkPolling() {
+  clearInterval(linkPollTimer);
+  linkPollTimer = null;
+  if (state.deviceLink?.status === 'waiting') {
+    linkPollTimer = setInterval(() => {
+      refreshDeviceLink(false).catch(() => {});
+    }, 5000);
+  } else if (canSync(state.deviceLink)) {
+    linkPollTimer = setInterval(() => scheduleCoupleSync({ delay: 0 }), 30_000);
+  }
+}
 
 const entitlement = new DemoEntitlementProvider(
   () => state.plus,
@@ -200,6 +253,7 @@ function toast(message, kind = 'default') {
 async function saveState(broadcast = true) {
   await coupleRepository.saveState(state);
   if (broadcast) channel?.postMessage({ type: 'STATE', state });
+  scheduleCoupleSync();
 }
 
 async function loadState() {
@@ -769,7 +823,7 @@ function bindToday() {
     await saveState();
     await track('answer_submitted', { questionId: state.questionId, length: text.length });
     toast('Ответ отправлен ❤️');
-    demoPartner.scheduleAfterUserAnswer(key);
+    if (!isLivePair()) demoPartner.scheduleAfterUserAnswer(key);
     render();
   });
   document.getElementById('complete-day')?.addEventListener('click', completeDay);
@@ -894,20 +948,26 @@ async function refreshDeviceLink(announce) {
       pairId: status.pairId,
       role: status.role,
       status: status.status,
-      linkedAt: status.linkedAt,
+      linkedAt: status.linkedAt || state.deviceLink.linkedAt,
       inviteCode: status.status === 'linked' ? null : state.deviceLink.inviteCode,
-      inviteExpiresAt: status.status === 'linked' ? null : state.deviceLink.inviteExpiresAt
+      inviteExpiresAt: status.status === 'linked' ? null : state.deviceLink.inviteExpiresAt,
+      peerPublicKey: status.peerPublicKey || state.deviceLink.peerPublicKey,
+      syncRevision: status.syncRevision ?? state.deviceLink.syncRevision
     });
     if (state.deviceLink.status !== previous) {
-      await saveState();
-      if (screen === 'settings') render();
+      await saveState(false);
+      ensureLinkPolling();
+      if (canSync(state.deviceLink)) await syncCoupleNow({ announce: true });
+      else if (screen === 'settings') render();
       return;
     }
     if (announce) toast(status.status === 'linked' ? 'Второй телефон уже подключился' : 'Пока ждём второй телефон');
   } catch (error) {
     if (error.code === 'unauthorized') {
+      clearSyncKeyCache();
       state.deviceLink = emptyDeviceLink();
-      await saveState();
+      await saveState(false);
+      ensureLinkPolling();
       if (screen === 'settings') render();
       return;
     }
@@ -986,8 +1046,10 @@ function bindSettings() {
   });
   document.getElementById('pair-create')?.addEventListener('click', async () => {
     try {
-      state.deviceLink = linkFromPairResult(await createPair());
-      await saveState();
+      const identity = await generatePairIdentity();
+      state.deviceLink = linkFromPairResult(await createPair(identity.publicKey), identity);
+      await saveState(false);
+      ensureLinkPolling();
       render();
     } catch (error) {
       toast(pairErrorCopy(error), 'warn');
@@ -996,21 +1058,27 @@ function bindSettings() {
   document.getElementById('pair-join')?.addEventListener('click', async () => {
     const code = document.getElementById('pair-code')?.value || '';
     try {
-      state.deviceLink = linkFromPairResult(await joinPair(code));
-      await saveState();
+      const identity = await generatePairIdentity();
+      state.deviceLink = linkFromPairResult(await joinPair(code, identity.publicKey), identity);
+      await saveState(false);
+      ensureLinkPolling();
       toast('Телефоны связаны');
+      await syncCoupleNow({ announce: true });
       render();
     } catch (error) {
       toast(pairErrorCopy(error), 'warn');
     }
   });
   document.getElementById('pair-refresh')?.addEventListener('click', () => refreshDeviceLink(true));
+  document.getElementById('pair-sync-now')?.addEventListener('click', () => syncCoupleNow({ announce: true }));
   document.getElementById('pair-leave')?.addEventListener('click', async () => {
-    if (!confirm('Отвязать этот телефон? Ответы на нём останутся.')) return;
+    if (!confirm('Отвязать этот телефон? Ответы на нём останутся, общая синхронизация остановится.')) return;
     try {
       if (state.deviceLink?.deviceToken) await leavePair(state.deviceLink.deviceToken);
+      clearSyncKeyCache();
       state.deviceLink = emptyDeviceLink();
-      await saveState();
+      await saveState(false);
+      ensureLinkPolling();
       render();
     } catch (error) {
       toast(pairErrorCopy(error), 'warn');
@@ -1330,10 +1398,18 @@ async function boot() {
     nav(u.searchParams.get('screen') || 'today');
   });
   await setupNativeShell();
+  ensureLinkPolling();
+  if (canSync(state.deviceLink)) scheduleCoupleSync({ delay: 800 });
   render();
 
-  // Resume demo partner timer if waiting
-  if (state.onboarded && meAnswered() && !partnerAnswered() && state.testLab?.partnerAutoAnswer !== false) {
+  // Demo partner only for single-phone hypothesis — never when a real pair is linked.
+  if (
+    !isLivePair() &&
+    state.onboarded &&
+    meAnswered() &&
+    !partnerAnswered() &&
+    state.testLab?.partnerAutoAnswer !== false
+  ) {
     demoPartner.scheduleAfterUserAnswer(todayKey());
   }
 }
