@@ -1,5 +1,6 @@
 import { createId } from '../ids.js';
 import { newEntity, touch } from '../syncMeta.js';
+import { currentCircleId, entitiesForCircle } from '../garden/ownership.js';
 
 export const LIST_TYPES = ['wishlist', 'places', 'watch', 'trips', 'dates', 'home', 'custom'];
 
@@ -14,20 +15,29 @@ export const DEFAULT_LISTS = [
 
 export function seedDefaultLists(state, now, idFactory = createId) {
   if (!Array.isArray(state.lists)) state.lists = [];
-  if (state.defaultListsSeeded) return state.lists;
+  const circle = currentCircleId(state) || state.circleId || null;
+  if (state.defaultListsSeeded) {
+    // Do not backfill circleId onto unscoped/legacy lists — unknown stays local.
+    return state.lists;
+  }
   for (const def of DEFAULT_LISTS) {
-    const exists = state.lists.some((list) => list.seedKey === def.seedKey || (list.type === def.type && list.type !== 'custom'));
+    const exists = state.lists.some(
+      (list) =>
+        (list.seedKey === def.seedKey || (list.type === def.type && list.type !== 'custom')) &&
+        (!circle || !list.circleId || list.circleId === circle)
+    );
     if (exists) continue;
-    state.lists.push(makeList({ ...def, createdBy: 'a' }, now, idFactory));
+    state.lists.push(makeList({ ...def, createdBy: 'a' }, now, idFactory, circle));
   }
   state.defaultListsSeeded = true;
   return state.lists;
 }
 
-function makeList(input, now, idFactory) {
+function makeList(input, now, idFactory, circleId = null) {
   return newEntity(
     {
       id: idFactory(),
+      circleId: circleId || null,
       name: String(input.name || 'Список').trim().slice(0, 60),
       icon: input.icon || '✨',
       type: LIST_TYPES.includes(input.type) ? input.type : 'custom',
@@ -39,7 +49,9 @@ function makeList(input, now, idFactory) {
 }
 
 export function getLists(state) {
-  return [...(state.lists || [])];
+  const circle = currentCircleId(state);
+  if (!circle) return [...(state.lists || [])];
+  return entitiesForCircle(state.lists, circle);
 }
 
 export function getList(state, id) {
@@ -58,7 +70,8 @@ export function createList(state, input, { now = new Date().toISOString(), idFac
       createdBy: actorRole
     },
     now,
-    idFactory
+    idFactory,
+    currentCircleId(state) || state.circleId || null
   );
   state.lists.push(list);
   return list;
@@ -100,6 +113,7 @@ export function createListItem(state, input, { now = new Date().toISOString(), i
   const item = newEntity(
     {
       id: idFactory(),
+      circleId: list.circleId || currentCircleId(state) || state.circleId || null,
       listId: list.id,
       type: input.type || list.type,
       title: title.slice(0, 180),

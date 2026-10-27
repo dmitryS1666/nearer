@@ -10,7 +10,10 @@ function linkPreviewPlugin() {
     const { handleLinkPreviewRequest } = await import('../server/linkPreview.js');
     const { createPairService } = await import('../server/pairs.js');
     const { createPairStore } = await import('../server/pairStore.js');
-    const pairService = createPairService(createPairStore());
+    // Local/dev E2E shares one loopback IP for all Playwright contexts — raise sync budget.
+    const pairService = createPairService(createPairStore(), {
+      limits: { create: 40, join: 40, sync: 400, windowMs: 10 * 60 * 1000 }
+    });
 
     server.middlewares.use((req, res, next) => {
       const path = String(req.url || '').split('?')[0];

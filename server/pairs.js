@@ -102,6 +102,7 @@ export function createPairService(store, { now = () => Date.now(), limits = DEFA
       if (result.error === 'unauthorized') return { status: 401, json: { error: 'unauthorized' } };
       if (result.error === 'not_linked') return { status: 409, json: { error: 'not_linked' } };
       if (result.error === 'conflict') return { status: 409, json: result };
+      if (result.error === 'client_outdated') return { status: 426, json: result };
       if (result.error) return { status: 400, json: { error: result.error } };
       return { status: 200, json: result };
     }

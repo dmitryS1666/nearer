@@ -1,6 +1,7 @@
 import { createId } from '../ids.js';
 import { newEntity, touch } from '../syncMeta.js';
 import { getMoment } from '../moments/model.js';
+import { currentCircleId } from '../garden/ownership.js';
 
 export const PHOTO_STORAGE_MODES = ['links', 'preview', 'original'];
 export const MEDIA_PROVIDERS = ['local', 'wfolio', 'external'];
@@ -26,6 +27,7 @@ export function attachMedia(state, momentId, input, { now = new Date().toISOStri
   const media = newEntity(
     {
       id: idFactory(),
+      circleId: moment.circleId || currentCircleId(state) || state.circleId || null,
       momentId,
       type: MEDIA_TYPES.includes(input.type) ? input.type : 'image',
       provider: MEDIA_PROVIDERS.includes(input.provider) ? input.provider : 'external',

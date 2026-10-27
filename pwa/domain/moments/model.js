@@ -1,6 +1,7 @@
 import { createId } from '../ids.js';
 import { newEntity, touch } from '../syncMeta.js';
 import { recordEvent, DomainEventType } from '../events/events.js';
+import { currentCircleId, entitiesForCircle } from '../garden/ownership.js';
 
 export const MOMENT_TYPES = [
   { id: 'memory', icon: '❤️', label: 'Момент' },
@@ -31,7 +32,9 @@ export function normalizeLocation(location) {
 }
 
 export function getMoments(state) {
-  return [...(state.moments || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const circle = currentCircleId(state);
+  const list = circle ? entitiesForCircle(state.moments, circle) : [...(state.moments || [])];
+  return list.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
 
 export function getMoment(state, id) {
@@ -45,6 +48,7 @@ export function createMoment(state, input, { now = new Date().toISOString(), idF
   const moment = newEntity(
     {
       id: idFactory(),
+      circleId: currentCircleId(state) || state.circleId || null,
       title: title.slice(0, 180),
       description: String(input.description || '').slice(0, 4000),
       date: input.date || todayIsoDate(),

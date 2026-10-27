@@ -23,8 +23,16 @@ import {
 } from './domain/analytics.js';
 import { decorateQuestion } from './domain/questions.js';
 import { migrateState } from './domain/schema.js';
-import { emptyDeviceLink, linkFromPairResult, normalizeDeviceLink } from './domain/link.js';
+import { emptyDeviceLink, linkFromPairResult, normalizeDeviceLink, bindStateToPair, rememberBoundPairOnLeave } from './domain/link.js';
 import { buildLocalBackup, restoreLocalBackup } from './domain/backup.js';
+import {
+  currentCircleId,
+  reactionValue,
+  getDayAnswers,
+  setDayAnswer,
+  getDayReaction,
+  setDayReaction
+} from './domain/garden/ownership.js';
 import { canSync, clearSyncKeyCache, runCoupleSync } from './domain/sync/coupleSync.js';
 import { escapeHtml } from './ui/escapeHtml.js';
 import { ProductMetadataProvider } from './platform/metadata/productMetadata.js';
@@ -36,9 +44,15 @@ import { renderLife, bindLife } from './components/history/life.js';
 import { renderShare, bindShare } from './components/share/shareInbox.js';
 import { renderTodayArchive } from './components/today/todayArchive.js';
 import { renderPhotoSettings } from './components/settings/photos.js';
-import { renderDeviceLink, renderLocalBackup } from './components/settings/link.js';
+import { renderDeviceLink, renderLocalBackup, renderPairRecovery } from './components/settings/link.js';
 import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
 import { generatePairIdentity } from './platform/link/pairCrypto.js';
+import { renderGardenHome } from './components/garden/gardenView.js';
+import { todayPeriodMode, renderPeriodTodayBody, renderOptionalLegacyDaily } from './components/garden/todayPeriod.js';
+import { bindPeriodTodayHandlers, bindGardenHandlers } from './components/garden/bindGarden.js';
+import { getActivePeriod } from './domain/garden/period.js';
+import { derivePeriodProgress } from './domain/garden/progress.js';
+import { buildPairRecoveryBundle, restorePairRecoveryBundle } from './domain/garden/recovery.js';
 import './styles.css';
 
 const bootParams = new URLSearchParams(location.search);
@@ -49,7 +63,8 @@ let route = {
   momentId: bootParams.get('moment'),
   shareUrl: bootParams.get('url'),
   shareTitle: bootParams.get('title'),
-  shareText: bootParams.get('text')
+  shareText: bootParams.get('text'),
+  periodId: bootParams.get('period')
 };
 let archiveUi = freshArchiveUi();
 const metadataProvider = new ProductMetadataProvider();
@@ -57,7 +72,7 @@ const wfolio = new WfolioPhotoProvider({ metadataProvider });
 let installPrompt = null;
 let versionTapCount = 0;
 let versionTapTimer = null;
-let gardenAnim = null; // { type: 'grow' | 'stage-up', stageId }
+let gardenAnim = null; // { type: 'grow' | 'stage-up' | 'bloom', stageId?, periodId? }
 let lastError = null;
 let revealAnimatedForKey = null;
 let pendingSettingsFocus = null;
@@ -94,12 +109,13 @@ async function syncCoupleNow({ announce = false } = {}) {
     });
     if (result?.state) state = result.state;
     if (announce) toast('Синхронизировано');
-    if (screen === 'settings') render();
+    // Garden/today must refresh after sync (mutual answers / completion) without leaving the screen.
+    if (screen === 'settings' || screen === 'today' || screen === 'garden') render();
   } catch (error) {
     state.deviceLink = { ...state.deviceLink, syncError: error.code || 'sync_failed' };
     await coupleRepository.saveState(state);
     if (announce) toast(pairErrorCopy(error), 'warn');
-    if (screen === 'settings') render();
+    if (screen === 'settings' || screen === 'today' || screen === 'garden') render();
   } finally {
     syncInFlight = false;
   }
@@ -128,10 +144,7 @@ const entitlement = new DemoEntitlementProvider(
 const demoPartner = new DemoPartnerEngine({
   getState: () => ({ ...state, todayKey: todayKey() }),
   saveAnswerForRole: async (dayKey, role, text, meta = {}) => {
-    state.answers[dayKey] = {
-      ...(state.answers[dayKey] || {}),
-      [role]: { text, submittedAt: new Date().toISOString(), ...meta }
-    };
+    setDayAnswer(state, dayKey, role, { text, submittedAt: new Date().toISOString(), ...meta });
     await saveState();
   },
   onPartnerAnswered: async () => {
@@ -151,7 +164,7 @@ const roleLabel = () => (state.currentRole === 'a' ? state.profile.name : state.
 const partnerRole = () => (state.currentRole === 'a' ? 'b' : 'a');
 const todayKey = () => coupleRepository.todayKey(state);
 const todayQuestion = () => decorateQuestion(coupleRepository.getTodayQuestion(state));
-const todayAnswers = () => state.answers[todayKey()] || {};
+const todayAnswers = () => getDayAnswers(state, todayKey());
 const bothAnswered = () => Boolean(todayAnswers().a?.text && todayAnswers().b?.text);
 const meAnswered = () => Boolean(todayAnswers()[state.currentRole]?.text);
 const partnerAnswered = () => Boolean(todayAnswers()[partnerRole()]?.text);
@@ -259,8 +272,14 @@ async function saveState(broadcast = true) {
 async function loadState() {
   state = await coupleRepository.loadState();
   coupleRepository.ensureTodayQuestion(state);
-  const role = sessionStorage.getItem('blizhe-role');
-  if (role === 'a' || role === 'b') state.currentRole = role;
+  if (state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b') {
+    // Linked pair identity wins over demo role switcher memory.
+    state.currentRole = state.deviceLink.role;
+    sessionStorage.setItem('blizhe-role', state.currentRole);
+  } else {
+    const role = sessionStorage.getItem('blizhe-role');
+    if (role === 'a' || role === 'b') state.currentRole = role;
+  }
 }
 
 function setRole(role) {
@@ -287,11 +306,14 @@ function nav(to, extra = {}) {
     if ('shareTitle' in extra) route.shareTitle = extra.shareTitle;
     if ('shareText' in extra) route.shareText = extra.shareText;
   }
+  if (to !== 'garden') route.periodId = null;
+  else if (extra.periodId) route.periodId = extra.periodId;
   const url = new URL(location.href);
   url.search = '';
   url.searchParams.set('screen', to);
   if (to === 'list' && route.listId) url.searchParams.set('list', route.listId);
   if (to === 'moment' && route.momentId) url.searchParams.set('moment', route.momentId);
+  if (to === 'garden' && route.periodId) url.searchParams.set('period', route.periodId);
   if (to === 'share') {
     if (route.shareUrl) url.searchParams.set('url', route.shareUrl);
     if (route.shareTitle) url.searchParams.set('title', route.shareTitle);
@@ -397,96 +419,113 @@ function renderOnboarding() {
   });
 }
 
-function todayView() {
+function legacyDailyBody() {
   const q = todayQuestion();
   const answers = todayAnswers();
-  let body = '';
   const dayDone = state.lastCompletedCalendarDate === todayKey();
 
   if (dayDone) {
-    body = `
+    return `
       <section class="waiting-card glass-card">
-        <div class="pulse-heart">🌱</div>
         <div class="pill">День завершён</div>
-        <h2>До завтра</h2>
-        <p>Вы уже прожили сегодняшний ритуал. Загляните в сад или историю — новый вопрос появится завтра.</p>
+        <h2>Дополнительный ритуал на сегодня уже сохранён</h2>
+        <p>Он не растит тематическое растение. Загляните в сад периода.</p>
         <div class="button-row wrap" style="justify-content:center">
           <button class="primary" data-nav="garden">Открыть сад</button>
-          <button class="secondary" data-nav="history">История</button>
         </div>
-        <div class="streak-inline">🔥 ${state.streak} дней вместе</div>
       </section>`;
-  } else if (!meAnswered()) {
-    track('question_viewed', { questionId: q.id, category: q.category });
-    body = `
+  }
+  if (!meAnswered()) {
+    return `
       <section class="question-card glass-card">
-        <div class="question-meta"><span class="pill">${escapeHtml(q.categoryLabel)}</span><span>Сегодня</span></div>
+        <div class="question-meta"><span class="pill">${escapeHtml(q.categoryLabel)}</span><span>Дополнительно</span></div>
         <h2>${escapeHtml(q.text)}</h2>
-        <p class="question-note">Ответ партнёра откроется только после твоего ответа.</p>
+        <p class="question-note">Не даёт прогресс тематическому растению.</p>
         <form id="answer-form">
           <textarea id="answer-text" maxlength="700" rows="4" placeholder="Напиши то, что действительно хочется сказать…" enterkeyhint="done"></textarea>
           <div class="textarea-footer"><span id="char-count">0 / 700</span><span>Черновик сохраняется</span></div>
           <button class="primary large full sticky-cta" type="submit">Отправить ответ <span>♥</span></button>
         </form>
       </section>`;
-  } else if (!partnerAnswered()) {
-    track('waiting_viewed');
-    body = `
+  }
+  if (!partnerAnswered()) {
+    return `
       <section class="waiting-card glass-card">
         <div class="pulse-heart">♥</div>
-        <div class="pill">Ответ отправлен ❤️</div>
         <h2>Ждём ответ партнёра</h2>
-        <p>Мы не показываем ответы по одному — момент открытия должен быть общим.</p>
-        <div class="waiting-orbit">
-          <div>Ты ✓</div><span class="waiting-dots"><i></i><i></i><i></i></span>
-          <div>${escapeHtml(state.profile.partnerName)} …</div>
-        </div>
-        <div class="waiting-soft-bar" aria-hidden="true"><span></span></div>
-      </section>`;
-  } else {
-    track('reveal_viewed', { questionId: q.id });
-    const key = todayKey();
-    body = `
-      <section class="reveal-section ${revealAnimatedForKey === key ? '' : 'reveal-enter'}">
-        <div class="reveal-heading"><div class="confetti">✦</div><div><div class="eyebrow">Ответы открыты</div><h2>${escapeHtml(q.text)}</h2></div></div>
-        <div class="answers-grid">
-          ${answerCard(state.profile.name, answers.a?.text, 'violet')}
-          ${answerCard(state.profile.partnerName, answers.b?.text, 'rose')}
-        </div>
-        <div class="reaction-row">
-          <span class="reaction-label">Оставить реакцию:</span>
-          <div class="reaction-actions" role="group" aria-label="Реакции">
-          ${['❤️', '🥹', '😂', '🤗']
-            .map(
-              (r) =>
-                `<button type="button" class="reaction ${state.reactions[key] === r ? 'active' : ''}" data-reaction="${r}" aria-label="Реакция ${r}"><span class="reaction-emoji">${r}</span></button>`
-            )
-            .join('')}
-          </div>
-        </div>
-        <div class="completion-card">
-          <div><span class="completion-icon">🌱</span><div><b>Ваш сад растёт</b><small>Завершите день, чтобы сохранить его в историю.</small></div></div>
-          <button class="primary" id="complete-day">Завершить день →</button>
-        </div>
-        ${
-          streakMilestone(state.streak)
-            ? ''
-            : state.streak > 0
-              ? `<div class="streak-inline">🔥 ${state.streak} дней вместе</div>`
-              : ''
-        }
+        <p>Дополнительный вопрос дня — без влияния на сад периода.</p>
       </section>`;
   }
+  const key = todayKey();
+  return `
+    <section class="reveal-section ${revealAnimatedForKey === key ? '' : 'reveal-enter'}">
+      <div class="reveal-heading"><div class="confetti">✦</div><div><div class="eyebrow">Ответы открыты</div><h2>${escapeHtml(q.text)}</h2></div></div>
+      <div class="answers-grid">
+        ${answerCard(state.profile.name, answers.a?.text, 'violet')}
+        ${answerCard(state.profile.partnerName, answers.b?.text, 'rose')}
+      </div>
+      <div class="reaction-row">
+        <span class="reaction-label">Оставить реакцию:</span>
+        <div class="reaction-actions" role="group" aria-label="Реакции">
+        ${['❤️', '🥹', '😂', '🤗']
+          .map(
+            (r) =>
+              `<button type="button" class="reaction ${reactionValue(getDayReaction(state, key)) === r ? 'active' : ''}" data-reaction="${r}" aria-label="Реакция ${r}"><span class="reaction-emoji">${r}</span></button>`
+          )
+          .join('')}
+        </div>
+      </div>
+      <div class="completion-card">
+        <div><span class="completion-icon">📝</span><div><b>В историю дней</b><small>Не увеличивает рост тематического растения.</small></div></div>
+        <button class="primary" id="complete-day">Сохранить день →</button>
+      </div>
+    </section>`;
+}
+
+function todayView() {
+  const periodCtx = todayPeriodMode(state);
+  let body = '';
+
+  if (periodCtx.mode !== 'none') {
+    if (periodCtx.mode === 'period-answer') {
+      track('period_question_viewed', { periodId: periodCtx.period.id, questionId: periodCtx.question.id });
+    }
+    body = renderPeriodTodayBody(state, periodCtx);
+    if (periodCtx.mode === 'period-waiting-schedule' || periodCtx.mode === 'period-reveal') {
+      body += renderOptionalLegacyDaily(state, legacyDailyBody());
+    }
+  } else if (!getActivePeriod(state)) {
+    body = `
+      <section class="waiting-card glass-card">
+        <div class="pulse-heart">🌱</div>
+        <div class="pill">Сад отношений</div>
+        <h2>Начните тематический период</h2>
+        <p>Выберите растение в саду. Пока периода нет — можно ответить на добровольный вопрос дня.</p>
+        <div class="button-row wrap" style="justify-content:center">
+          <button class="primary" data-nav="garden">Выбрать тему</button>
+        </div>
+      </section>
+      ${renderOptionalLegacyDaily(state, legacyDailyBody())}`;
+  } else {
+    body = renderPeriodTodayBody(state, periodCtx) + renderOptionalLegacyDaily(state, legacyDailyBody());
+  }
+
+  const syncBanner = state.deviceLink?.syncError
+    ? `<div class="sync-banner warn" role="status">${escapeHtml(pairErrorCopy({ code: state.deviceLink.syncError }))}</div>`
+    : !navigator.onLine
+      ? `<div class="sync-banner" role="status">Офлайн — ответы сохраняются на телефоне и уйдут при следующей синхронизации.</div>`
+      : '';
 
   return shell(`
     <section class="dashboard-head">
-      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>${escapeHtml(todayGreeting())}</h1><p class="today-lead">Пять минут внимания важнее ещё одного уведомления.</p></div>
+      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>${escapeHtml(todayGreeting())}</h1><p class="today-lead">Вопрос периода растит растение. Остальное — по желанию.</p></div>
       ${streakBubble()}
     </section>
     ${notificationNudge()}
+    ${syncBanner}
     ${body}
     ${renderTodayArchive(state)}
-  `);
+  `, 'today');
 }
 
 function todayGreeting() {
@@ -546,37 +585,24 @@ function triggerGardenAnim(prevCompletedDays, nextCompletedDays) {
 }
 
 function gardenView() {
-  const garden = gardenFromCompletedDays(state.completedDays);
-  const stage = garden.stage;
-  const animClass =
-    gardenAnim?.stageId === stage.id
-      ? gardenAnim.type === 'stage-up'
-        ? 'garden-stage-up'
-        : 'garden-grow'
-      : '';
-  const remaining = garden.next ? Math.max(0, garden.next.minDays - state.completedDays) : 0;
   return shell(
-    `
-    <section class="page-head"><div class="dashboard-copy"><div class="eyebrow">Ваше общее пространство</div><h1>Сад отношений</h1><p>Он растёт не от идеальных ответов, а от регулярного внимания друг к другу.</p></div>${streakBubble()}</section>
-    <section class="garden-card glass-card">
-      <div class="sky-stars">✦ · ✧ · ✦</div>
-      <div class="garden-stage ${animClass}" aria-label="${escapeHtml(stage.name)}">${stage.icon}</div>
-      <h2>${escapeHtml(stage.name)}</h2>
-      <p>${!garden.next ? 'Ваш сад уже стал настоящим маленьким миром.' : remainingDaysPhrase(remaining)}</p>
-      <div class="progress-track"><div class="progress-bar" style="width:${garden.progress}%"></div></div>
-      <div class="milestones"><span>Завершённых дней: <b>${state.completedDays}</b></span><span>Этап: <b>${escapeHtml(stage.name)}</b></span></div>
-    </section>
-    <section class="stats-grid">
-      <div class="stat-card">${uiIcon('letter')}<div class="stat-meta"><b>${state.history.length}</b><small>вопросов в истории</small></div></div>
-      <div class="stat-card">${uiIcon('flame')}<div class="stat-meta"><b>${state.streak}</b><small>${daysInARowLabel(state.streak)}</small></div></div>
-      <div class="stat-card">${uiIcon('heart')}<div class="stat-meta"><b>${Object.keys(state.reactions).length}</b><small>реакций к ответам</small></div></div>
-    </section>
-    <p class="microcopy garden-hint">Реакции ставят после открытия ответов — на экране «Сегодня», когда оба ответили.</p>
-  `,
+    renderGardenHome(state, { gardenAnim, selectedPeriodId: route.periodId || null }),
     'garden'
   );
 }
 
+function triggerPeriodAnim(period, prevStageId, result) {
+  if (!period) return;
+  const progress = derivePeriodProgress(period);
+  gardenAnim = {
+    type: result?.bloomEvent ? 'bloom' : progress.stage.id !== prevStageId ? 'stage-up' : 'grow',
+    periodId: period.id,
+    stageId: progress.stage.id
+  };
+  setTimeout(() => {
+    if (gardenAnim?.periodId === period.id) gardenAnim = null;
+  }, result?.bloomEvent ? 1800 : 1200);
+}
 
 function packsView() {
   const packs = [
@@ -635,10 +661,11 @@ function settingsView() {
 
     ${renderPhotoSettings(state)}
     ${renderLocalBackup()}
+    ${renderPairRecovery(state)}
 
     <section class="settings-card">
       <h2>О тестовой версии</h2>
-      <p>Ответы и история хранятся на этом телефоне. Сервер, если им пользуются, знает только связь двух устройств и не получает тексты.</p>
+      <p>Ответы, периоды сада и история хранятся на этом телефоне. Сервер, если им пользуются, знает только связь двух устройств и не получает тексты. Синхронизация сада — end-to-end.</p>
       <div class="diagnostic-list">
         <div><span>Версия</span><b id="version-tap">${config.appName} ${config.versionName}</b></div>
         <div><span>Сборка</span><b>${config.buildLabel}</b></div>
@@ -768,6 +795,17 @@ function bindCommon() {
 function bindScreen() {
   const ctx = makeCtx();
   if (screen === 'today') bindToday();
+  if (screen === 'garden') {
+    bindGardenHandlers({
+      getState: () => state,
+      route,
+      saveState,
+      scheduleCoupleSync,
+      toast,
+      render,
+      nav
+    });
+  }
   if (screen === 'packs') bindPlus();
   if (screen === 'settings') bindSettings();
   if (screen === 'ours') bindOurs(ctx);
@@ -793,8 +831,17 @@ function bindPlus() {
 }
 
 function bindToday() {
+  bindPeriodTodayHandlers({
+    getState: () => state,
+    saveState,
+    scheduleCoupleSync,
+    track,
+    toast,
+    render,
+    triggerPeriodAnim
+  });
   const textarea = document.getElementById('answer-text');
-  const draftKey = `draft-${state.currentRole}-${todayKey()}`;
+  const draftKey = `draft-${currentCircleId(state) || 'solo'}-${state.currentRole}-${todayKey()}`;
   if (textarea) {
     track('answer_started', { questionId: state.questionId });
     getValue(draftKey, '').then((draft) => {
@@ -815,10 +862,7 @@ function bindToday() {
     const text = textarea.value.trim();
     if (text.length < 2) return toast('Напиши хотя бы пару слов', 'warn');
     const key = todayKey();
-    state.answers[key] = {
-      ...(state.answers[key] || {}),
-      [state.currentRole]: { text, submittedAt: new Date().toISOString() }
-    };
+    setDayAnswer(state, key, state.currentRole, { text, submittedAt: new Date().toISOString() });
     await setValue(draftKey, '');
     await saveState();
     await track('answer_submitted', { questionId: state.questionId, length: text.length });
@@ -829,7 +873,10 @@ function bindToday() {
   document.getElementById('complete-day')?.addEventListener('click', completeDay);
   document.querySelectorAll('[data-reaction]').forEach((el) =>
     el.addEventListener('click', async () => {
-      state.reactions[todayKey()] = el.dataset.reaction;
+      setDayReaction(state, todayKey(), {
+        value: el.dataset.reaction,
+        updatedAt: new Date().toISOString()
+      });
       await saveState();
       await track('reaction_sent', { reaction: el.dataset.reaction });
       render();
@@ -844,12 +891,13 @@ function bindToday() {
 async function maybeHapticReveal() {
   if (!bothAnswered() || screen !== 'today') return;
   const key = todayKey();
-  if (state.revealHapticDone?.[key]) {
+  const hapticKey = `${currentCircleId(state) || 'solo'}:${key}`;
+  if (state.revealHapticDone?.[hapticKey]) {
     revealAnimatedForKey = key;
     return;
   }
   revealAnimatedForKey = null;
-  state.revealHapticDone = { ...(state.revealHapticDone || {}), [key]: true };
+  state.revealHapticDone = { ...(state.revealHapticDone || {}), [hapticKey]: true };
   await saveState(false);
   await lightImpact();
   requestAnimationFrame(() => {
@@ -862,16 +910,21 @@ async function completeDay() {
   if (!bothAnswered()) return;
   const q = todayQuestion();
   const key = todayKey();
+  const circle = currentCircleId(state) || state.circleId || null;
   const prevCompleted = state.completedDays;
-  if (!state.history.some((h) => h.calendarDate === key || h.dayIndex === state.dayIndex)) {
+  const alreadyDone = (state.history || []).some(
+    (h) => h.circleId === circle && (h.calendarDate === key || h.dayIndex === state.dayIndex)
+  );
+  if (!alreadyDone) {
     state.history.push({
       dayIndex: state.dayIndex,
       calendarDate: key,
+      circleId: circle,
       date: new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date()),
       question: q.text,
       category: q.categoryLabel,
       answers: structuredClone(todayAnswers()),
-      reaction: state.reactions[key] || null
+      reaction: getDayReaction(state, key) || null
     });
     state.completedDays += 1;
     state.streak += 1;
@@ -943,6 +996,7 @@ async function refreshDeviceLink(announce) {
   try {
     const status = await fetchPairStatus(token);
     const previous = state.deviceLink.status;
+    const previousPairId = state.deviceLink.pairId || state.lastBoundPairId || null;
     state.deviceLink = normalizeDeviceLink({
       ...state.deviceLink,
       pairId: status.pairId,
@@ -954,6 +1008,12 @@ async function refreshDeviceLink(announce) {
       peerPublicKey: status.peerPublicKey || state.deviceLink.peerPublicKey,
       syncRevision: status.syncRevision ?? state.deviceLink.syncRevision
     });
+    if (status.pairId) {
+      bindStateToPair(state, status.pairId, { previousPairId });
+    }
+    if (state.deviceLink.role === 'a' || state.deviceLink.role === 'b') {
+      state.currentRole = state.deviceLink.role;
+    }
     if (state.deviceLink.status !== previous) {
       await saveState(false);
       ensureLinkPolling();
@@ -965,6 +1025,7 @@ async function refreshDeviceLink(announce) {
   } catch (error) {
     if (error.code === 'unauthorized') {
       clearSyncKeyCache();
+      rememberBoundPairOnLeave(state);
       state.deviceLink = emptyDeviceLink();
       await saveState(false);
       ensureLinkPolling();
@@ -1047,7 +1108,13 @@ function bindSettings() {
   document.getElementById('pair-create')?.addEventListener('click', async () => {
     try {
       const identity = await generatePairIdentity();
-      state.deviceLink = linkFromPairResult(await createPair(identity.publicKey), identity);
+      const previousPairId = state.deviceLink?.pairId || state.lastBoundPairId || null;
+      const created = await createPair(identity.publicKey);
+      state.deviceLink = linkFromPairResult(created, identity);
+      if (state.deviceLink.role === 'a' || state.deviceLink.role === 'b') {
+        state.currentRole = state.deviceLink.role;
+      }
+      bindStateToPair(state, created.pairId, { previousPairId });
       await saveState(false);
       ensureLinkPolling();
       render();
@@ -1059,7 +1126,13 @@ function bindSettings() {
     const code = document.getElementById('pair-code')?.value || '';
     try {
       const identity = await generatePairIdentity();
-      state.deviceLink = linkFromPairResult(await joinPair(code, identity.publicKey), identity);
+      const previousPairId = state.deviceLink?.pairId || state.lastBoundPairId || null;
+      const joined = await joinPair(code, identity.publicKey);
+      state.deviceLink = linkFromPairResult(joined, identity);
+      if (state.deviceLink.role === 'a' || state.deviceLink.role === 'b') {
+        state.currentRole = state.deviceLink.role;
+      }
+      bindStateToPair(state, joined.pairId, { previousPairId });
       await saveState(false);
       ensureLinkPolling();
       toast('Телефоны связаны');
@@ -1076,6 +1149,7 @@ function bindSettings() {
     try {
       if (state.deviceLink?.deviceToken) await leavePair(state.deviceLink.deviceToken);
       clearSyncKeyCache();
+      rememberBoundPairOnLeave(state);
       state.deviceLink = emptyDeviceLink();
       await saveState(false);
       ensureLinkPolling();
@@ -1102,7 +1176,7 @@ function bindSettings() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!confirm('Вернуть ответы из файла? Текущая история на этом телефоне будет заменена копией.')) return;
+    if (!confirm('Вернуть ответы из файла? Текущая история на этом телефоне будет заменена копией. Связь не восстанавливается из обычной копии.')) return;
     try {
       const payload = JSON.parse(await file.text());
       state = restoreLocalBackup(state, payload);
@@ -1111,6 +1185,47 @@ function bindSettings() {
       render();
     } catch {
       toast('Файл не похож на копию Ближе', 'warn');
+    }
+  });
+  document.getElementById('recovery-download')?.addEventListener('click', async () => {
+    const passphrase = document.getElementById('recovery-passphrase')?.value || '';
+    try {
+      const bundle = await buildPairRecoveryBundle(state, passphrase);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `blizhe-pair-recovery-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast('Recovery-файл сохранён');
+    } catch (error) {
+      if (error.code === 'passphrase_too_short') toast('Пароль слишком короткий (мин. 8)', 'warn');
+      else if (error.code === 'recovery_unavailable') toast('Сначала создайте связь телефонов', 'warn');
+      else toast('Не удалось создать recovery', 'warn');
+    }
+  });
+  document.getElementById('recovery-restore')?.addEventListener('click', () => {
+    document.getElementById('recovery-file')?.click();
+  });
+  document.getElementById('recovery-file')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const passphrase = document.getElementById('recovery-passphrase')?.value || '';
+    if (!confirm('Восстановить ключи связи из файла? Контент не меняется — только deviceLink.')) return;
+    try {
+      const bundle = JSON.parse(await file.text());
+      state = await restorePairRecoveryBundle(state, bundle, passphrase);
+      clearSyncKeyCache();
+      await saveState(false);
+      ensureLinkPolling();
+      toast('Связь восстановлена из recovery');
+      await syncCoupleNow({ announce: true });
+      render();
+    } catch (error) {
+      if (error.code === 'recovery_decrypt_failed') toast('Неверный пароль или повреждённый файл', 'warn');
+      else toast('Не удалось восстановить связь', 'warn');
     }
   });
   refreshDeviceLink(false);
@@ -1166,10 +1281,10 @@ function bindTestLab() {
   document.getElementById('lab-trigger-reveal')?.addEventListener('click', async () => {
     const key = todayKey();
     if (!meAnswered()) {
-      state.answers[key] = {
-        ...(state.answers[key] || {}),
-        [state.currentRole]: { text: 'QA answer', submittedAt: new Date().toISOString() }
-      };
+      setDayAnswer(state, key, state.currentRole, {
+        text: 'QA answer',
+        submittedAt: new Date().toISOString()
+      });
     }
     await demoPartner.triggerPartnerAnswer(key);
     nav('today');
@@ -1197,8 +1312,9 @@ function bindTestLab() {
   });
   document.getElementById('lab-reset-today')?.addEventListener('click', async () => {
     const key = todayKey();
-    delete state.answers[key];
-    delete state.reactions[key];
+    const c = currentCircleId(state) || state.circleId;
+    if (c && state.answers?.[c]) delete state.answers[c][key];
+    if (c && state.reactions?.[c]) delete state.reactions[c][key];
     demoPartner.cancel();
     await saveState();
     toast('Today reset');
@@ -1252,11 +1368,9 @@ function bindTestLab() {
   document.getElementById('lab-scenario-full-day')?.addEventListener('click', async () => {
     const key = todayKey();
     const now = new Date().toISOString();
-    state.answers[key] = {
-      a: { text: 'QA: мой ответ за день', submittedAt: now },
-      b: { text: 'QA: ответ партнёра', submittedAt: now }
-    };
-    state.reactions[key] = '❤️';
+    setDayAnswer(state, key, 'a', { text: 'QA: мой ответ за день', submittedAt: now });
+    setDayAnswer(state, key, 'b', { text: 'QA: ответ партнёра', submittedAt: now });
+    setDayReaction(state, key, { value: '❤️', updatedAt: now });
     await saveState();
     await completeDay();
     coupleRepository.ensureTodayQuestion(state, { forceNextDay: true });
@@ -1401,6 +1515,11 @@ async function boot() {
   ensureLinkPolling();
   if (canSync(state.deviceLink)) scheduleCoupleSync({ delay: 800 });
   render();
+
+  // E2E / lab hook: sync without leaving the current screen.
+  if (typeof window !== 'undefined') {
+    window.__nearerSyncNow = () => syncCoupleNow({ announce: false });
+  }
 
   // Demo partner only for single-phone hypothesis — never when a real pair is linked.
   if (

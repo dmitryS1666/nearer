@@ -1,3 +1,5 @@
+import { bindStateToPair as bindOwnership, rememberBoundPairOnLeave as rememberLeave } from './garden/ownership.js';
+
 const STATUSES = new Set(['solo', 'waiting', 'linked']);
 
 export function emptyDeviceLink() {
@@ -52,4 +54,13 @@ export function linkFromPairResult(result, identity = {}) {
     peerPublicKey: result.peerPublicKey || null,
     syncRevision: result.syncRevision || 0
   });
+}
+
+/** @deprecated use garden/ownership — kept as the single public bind API */
+export function bindStateToPair(state, pairId, options) {
+  return bindOwnership(state, pairId, options);
+}
+
+export function rememberBoundPairOnLeave(state) {
+  return rememberLeave(state);
 }

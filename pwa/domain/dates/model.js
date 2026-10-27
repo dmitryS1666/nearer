@@ -1,9 +1,12 @@
 import { createId } from '../ids.js';
 import { newEntity, touch } from '../syncMeta.js';
 import { calendarDateString } from '../LocalCoupleRepository.js';
+import { currentCircleId, entitiesForCircle } from '../garden/ownership.js';
 
 export function getImportantDates(state) {
-  return [...(state.importantDates || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const circle = currentCircleId(state);
+  const list = circle ? entitiesForCircle(state.importantDates, circle) : [...(state.importantDates || [])];
+  return list.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
 export function createImportantDate(state, input, { now = new Date().toISOString(), idFactory = createId } = {}) {
@@ -14,6 +17,7 @@ export function createImportantDate(state, input, { now = new Date().toISOString
   const entry = newEntity(
     {
       id: idFactory(),
+      circleId: currentCircleId(state) || state.circleId || null,
       title: title.slice(0, 120),
       date,
       repeatYearly: input.repeatYearly !== false,

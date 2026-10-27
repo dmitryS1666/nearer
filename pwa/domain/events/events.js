@@ -1,5 +1,6 @@
 import { createId } from '../ids.js';
 import { newEntity } from '../syncMeta.js';
+import { currentCircleId } from '../garden/ownership.js';
 
 export const DomainEventType = {
   MomentCreated: 'MomentCreated',
@@ -16,6 +17,7 @@ export function recordEvent(state, type, payload, now = new Date().toISOString()
   const event = newEntity(
     {
       id: createId(),
+      circleId: currentCircleId(state) || state.circleId || null,
       type,
       payload: payload || {}
     },

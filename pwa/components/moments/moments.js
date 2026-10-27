@@ -1,12 +1,21 @@
 import { escapeHtml, safeHttpUrl, safeImageUrl } from '../../ui/escapeHtml.js';
-import { createMoment, updateMoment, deleteMoment, setMomentFavorite, getMoment, MOMENT_TYPES, momentTypeMeta } from '../../domain/moments/model.js';
+import {
+  createMoment,
+  updateMoment,
+  deleteMoment,
+  setMomentFavorite,
+  getMoment,
+  getMoments,
+  MOMENT_TYPES,
+  momentTypeMeta
+} from '../../domain/moments/model.js';
 import { attachMedia, removeMedia, setCoverFromMedia, mediaForMoment } from '../../domain/media/model.js';
 import { formatRange } from '../../domain/dates/model.js';
 import { isWfolioUrl } from '../../integrations/wfolio/wfolio.js';
 import { filesToAttachmentInputs } from '../../platform/photos/localPhotos.js';
 
 export function renderMoments(ctx) {
-  const moments = [...(ctx.state.moments || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const moments = getMoments(ctx.state);
   return `
     <section class="page-head">
       <div class="dashboard-copy">

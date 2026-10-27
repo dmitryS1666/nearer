@@ -176,7 +176,11 @@ describe('local backup across an app update', () => {
 
     const restored = restoreLocalBackup({ deviceLink: current.deviceLink }, backup);
     assert.equal(restored.history[13].answers.a.text, 'Ответ 14');
-    assert.equal(restored.answers['2026-10-14'].a.text, 'сегодня');
+    assert.equal(
+      restored.answers?.['pair-1']?.['2026-10-14']?.a?.text ||
+        restored.answers?.__orphan__?.['2026-10-14']?.a?.text,
+      'сегодня'
+    );
     assert.equal(restored.streak, 14);
     assert.equal(restored.deviceLink.deviceToken, 'super-secret-token');
     assert.ok(restored.lists.length >= 6);

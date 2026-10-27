@@ -6,35 +6,48 @@ import { initialState } from '../domain/LocalCoupleRepository.js';
 import { migrateState } from '../domain/schema.js';
 import { buildSyncPayload } from '../domain/sync/payload.js';
 import { mergeSyncPayload } from '../domain/sync/merge.js';
+import { getDayAnswers } from '../domain/garden/ownership.js';
 import { generatePairIdentity, deriveSyncKey, encryptJson, decryptJson } from '../platform/link/pairCrypto.js';
 
 describe('sync merge', () => {
   it('merges answers and list items without dropping either side', () => {
     const local = migrateState({
       ...structuredClone(initialState),
+      circleId: 'shared',
+      activeCircleId: 'shared',
       answers: {
-        '2026-10-21': { a: { text: 'local-a', submittedAt: '2026-10-21T10:00:00.000Z' } }
+        '2026-10-21': {
+          circleId: 'shared',
+          a: { text: 'local-a', submittedAt: '2026-10-21T10:00:00.000Z' }
+        }
       },
-      listItems: [{ id: 'i1', title: 'old', updatedAt: '2026-10-20T00:00:00.000Z', version: 1 }],
+      listItems: [
+        { id: 'i1', circleId: 'shared', title: 'old', updatedAt: '2026-10-20T00:00:00.000Z', version: 1 }
+      ],
       currentRole: 'a',
       profile: { name: 'Аня', partnerName: 'Партнёр' }
     });
     const remote = buildSyncPayload(
       migrateState({
         ...structuredClone(initialState),
+        circleId: 'shared',
+        activeCircleId: 'shared',
         answers: {
-          '2026-10-21': { b: { text: 'remote-b', submittedAt: '2026-10-21T11:00:00.000Z' } }
+          '2026-10-21': {
+            circleId: 'shared',
+            b: { text: 'remote-b', submittedAt: '2026-10-21T11:00:00.000Z' }
+          }
         },
         listItems: [
-          { id: 'i1', title: 'new', updatedAt: '2026-10-21T00:00:00.000Z', version: 2 },
-          { id: 'i2', title: 'peer', updatedAt: '2026-10-21T00:00:00.000Z', version: 1 }
+          { id: 'i1', circleId: 'shared', title: 'new', updatedAt: '2026-10-21T00:00:00.000Z', version: 2 },
+          { id: 'i2', circleId: 'shared', title: 'peer', updatedAt: '2026-10-21T00:00:00.000Z', version: 1 }
         ],
         profile: { name: 'Боря', partnerName: 'Аня' }
       })
     );
     const merged = mergeSyncPayload(local, remote);
-    assert.equal(merged.answers['2026-10-21'].a.text, 'local-a');
-    assert.equal(merged.answers['2026-10-21'].b.text, 'remote-b');
+    assert.equal(getDayAnswers(merged, '2026-10-21').a.text, 'local-a');
+    assert.equal(getDayAnswers(merged, '2026-10-21').b.text, 'remote-b');
     assert.equal(merged.listItems.find((item) => item.id === 'i1').title, 'new');
     assert.equal(merged.listItems.find((item) => item.id === 'i2').title, 'peer');
     assert.equal(merged.profile.name, 'Аня');
@@ -42,11 +55,21 @@ describe('sync merge', () => {
   });
 
   it('scrubs inline photo data from sync payloads', () => {
-    const payload = buildSyncPayload({
+    const state = migrateState({
       ...structuredClone(initialState),
-      moments: [{ id: 'm1', coverImage: 'data:image/png;base64,aaaa', media: [] }],
-      mediaAttachments: [{ id: 'p1', sourceUrl: 'data:image/jpeg;base64,bbbb', previewUrl: 'https://cdn.example/x.jpg' }]
+      circleId: 'c1',
+      activeCircleId: 'c1',
+      moments: [{ id: 'm1', circleId: 'c1', coverImage: 'data:image/png;base64,aaaa', media: [] }],
+      mediaAttachments: [
+        {
+          id: 'p1',
+          circleId: 'c1',
+          sourceUrl: 'data:image/jpeg;base64,bbbb',
+          previewUrl: 'https://cdn.example/x.jpg'
+        }
+      ]
     });
+    const payload = buildSyncPayload(state);
     assert.equal(payload.moments[0].coverImage, '');
     assert.equal(payload.mediaAttachments[0].sourceUrl, '');
     assert.equal(payload.mediaAttachments[0].previewUrl, 'https://cdn.example/x.jpg');
@@ -74,16 +97,24 @@ describe('encrypted pair sync over the store', () => {
 
     const keyA = await deriveSyncKey(alice.privateKeyJwk, bob.publicKey);
     const keyB = await deriveSyncKey(bob.privateKeyJwk, alice.publicKey);
-    const sealed = await encryptJson(keyA, buildSyncPayload({
+    const state = migrateState({
       ...structuredClone(initialState),
-      answers: { '2026-10-21': { a: { text: 'только для двоих', submittedAt: '2026-10-21T12:00:00.000Z' } } }
-    }));
+      circleId: created.json.pairId,
+      activeCircleId: created.json.pairId,
+      answers: {
+        '2026-10-21': {
+          circleId: created.json.pairId,
+          a: { text: 'только для двоих', submittedAt: '2026-10-21T12:00:00.000Z' }
+        }
+      }
+    });
+    const sealed = await encryptJson(keyA, buildSyncPayload(state));
 
     const put = api.handle({
       method: 'PUT',
       path: '/api/pairs/sync',
       authorization: `Bearer ${created.json.deviceToken}`,
-      rawBody: JSON.stringify({ ...sealed, baseRevision: 0 })
+      rawBody: JSON.stringify({ ...sealed, baseRevision: 0, formatVersion: 3 })
     });
     assert.equal(put.status, 200);
 

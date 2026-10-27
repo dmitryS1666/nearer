@@ -106,6 +106,7 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
         syncCiphertext: null,
         syncIv: null,
         syncRevision: 0,
+        syncFormatVersion: 0,
         syncUpdatedAt: null,
         createdAt: at,
         linkedAt: null
@@ -179,6 +180,7 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
         revision: pair.syncRevision || 0,
         ciphertext: pair.syncCiphertext || null,
         iv: pair.syncIv || null,
+        formatVersion: pair.syncFormatVersion || 0,
         updatedAt: pair.syncUpdatedAt ? new Date(pair.syncUpdatedAt).toISOString() : null
       };
     },
@@ -189,6 +191,17 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
       if (!pair.partnerTokenHash) return { error: 'not_linked' };
       if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid_json' };
       const { ciphertext, iv, baseRevision } = body;
+      const clientFormat = Number(body.formatVersion);
+      const storedFormat = Number(pair.syncFormatVersion) || 0;
+      // Old clients omit formatVersion (NaN/0). Once a v2+ snapshot exists, reject downgrades.
+      const effectiveClientFormat = Number.isFinite(clientFormat) && clientFormat > 0 ? clientFormat : 1;
+      if (storedFormat > 0 && effectiveClientFormat < storedFormat) {
+        return {
+          error: 'client_outdated',
+          formatVersion: storedFormat,
+          revision: pair.syncRevision || 0
+        };
+      }
       if (typeof ciphertext !== 'string' || !CIPHER_RE.test(ciphertext) || ciphertext.length > MAX_SYNC_CIPHER_CHARS) {
         return { error: 'invalid_ciphertext' };
       }
@@ -202,16 +215,19 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
           revision: current,
           ciphertext: pair.syncCiphertext || null,
           iv: pair.syncIv || null,
+          formatVersion: storedFormat,
           updatedAt: pair.syncUpdatedAt ? new Date(pair.syncUpdatedAt).toISOString() : null
         };
       }
       pair.syncCiphertext = ciphertext;
       pair.syncIv = iv;
       pair.syncRevision = current + 1;
+      pair.syncFormatVersion = Math.max(storedFormat, effectiveClientFormat);
       pair.syncUpdatedAt = at;
       persist();
       return {
         revision: pair.syncRevision,
+        formatVersion: pair.syncFormatVersion,
         updatedAt: new Date(pair.syncUpdatedAt).toISOString()
       };
     },

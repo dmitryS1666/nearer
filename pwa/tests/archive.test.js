@@ -45,7 +45,11 @@ describe('migration', () => {
     const idFactory = ids();
     const migrated = migrateState(structuredClone(old), { now: '2026-10-16T12:00:00.000Z', idFactory });
     assert.equal(migrated.schemaVersion, SCHEMA_VERSION);
-    assert.equal(migrated.answers['2024-03-12'].a.text, 'Мы рядом');
+    assert.equal(
+      migrated.answers?.__orphan__?.['2024-03-12']?.a?.text ||
+        migrated.answers?.[migrated.circleId]?.['2024-03-12']?.a?.text,
+      'Мы рядом'
+    );
     assert.equal(migrated.history[0].question, 'Как мы?');
     assert.equal(migrated.streak, 4);
     assert.equal(migrated.profile.name, 'Дима');

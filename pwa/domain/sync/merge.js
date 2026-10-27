@@ -1,129 +1,133 @@
-import { isSyncPayload } from './payload.js';
+import { isSyncPayload, payloadRequiresUpgrade, SYNC_FORMAT_VERSION } from './payload.js';
+import { mergePeriods } from '../garden/mergePeriods.js';
+import {
+  expectedSyncCircleId,
+  mergeOwnedList,
+  mergeAnswersForCircle,
+  mergeHistoryForCircle,
+  mergeReactionsForCircle,
+  remapCircle
+} from '../garden/ownership.js';
+import { isFlatDayMap, nestAnswersMap, nestReactionsMap } from '../garden/dayMaps.js';
 
-function stamp(entity) {
-  const updated = Date.parse(entity?.updatedAt || entity?.createdAt || 0) || 0;
-  const version = Number(entity?.version) || 0;
-  return updated * 1000 + version;
-}
-
-function mergeById(localList = [], remoteList = []) {
-  const map = new Map();
-  for (const item of localList) {
-    if (item?.id) map.set(item.id, item);
-  }
-  for (const item of remoteList) {
-    if (!item?.id) continue;
-    const prev = map.get(item.id);
-    if (!prev || stamp(item) >= stamp(prev)) map.set(item.id, item);
-  }
-  return [...map.values()];
-}
-
-function answerStamp(entry) {
-  return Date.parse(entry?.submittedAt || entry?.at || entry?.updatedAt || 0) || 0;
-}
-
-function mergeAnswerRoles(local = {}, remote = {}) {
-  const dayOut = { ...local };
-  for (const role of ['a', 'b']) {
-    const left = local[role];
-    const right = remote[role];
-    if (!left) dayOut[role] = right;
-    else if (!right) dayOut[role] = left;
-    else dayOut[role] = answerStamp(right) >= answerStamp(left) ? right : left;
-  }
-  return dayOut;
-}
-
-function mergeAnswers(local = {}, remote = {}) {
-  const keys = new Set([...Object.keys(local), ...Object.keys(remote)]);
-  const out = {};
-  for (const day of keys) {
-    out[day] = mergeAnswerRoles(local[day] || {}, remote[day] || {});
-  }
-  return out;
-}
-
-function mergeHistory(local = [], remote = []) {
-  const map = new Map();
-  for (const entry of [...local, ...remote]) {
-    if (!entry?.calendarDate) continue;
-    const prev = map.get(entry.calendarDate);
-    if (!prev) {
-      map.set(entry.calendarDate, entry);
-      continue;
-    }
-    map.set(entry.calendarDate, {
-      ...prev,
-      ...entry,
-      answers: mergeAnswerRoles(prev.answers || {}, entry.answers || {}),
-      question: entry.question || prev.question
-    });
-  }
-  return [...map.values()].sort((a, b) => String(a.calendarDate).localeCompare(String(b.calendarDate)));
-}
-
-function mergeReactions(local = {}, remote = {}) {
-  const keys = new Set([...Object.keys(local), ...Object.keys(remote)]);
-  const out = {};
-  for (const key of keys) {
-    const left = local[key];
-    const right = remote[key];
-    if (!left) out[key] = right;
-    else if (!right) out[key] = left;
-    else out[key] = answerStamp(right) >= answerStamp(left) ? right : left;
-  }
-  return out;
+function circleMismatchError() {
+  const error = new Error('sync_circle_mismatch');
+  error.code = 'sync_circle_mismatch';
+  return error;
 }
 
 /**
  * Apply a decrypted remote snapshot onto local state.
  * Device secrets, role, notifications, and test lab stay local.
+ * Inbound circleId must match the expected bound pair before any mutation.
  */
-export function mergeSyncPayload(localState, remotePayload) {
+export function mergeSyncPayload(localState, remotePayload, { now = new Date().toISOString() } = {}) {
   if (!isSyncPayload(remotePayload)) {
     const error = new Error('invalid_sync_payload');
     error.code = 'invalid_sync_payload';
     throw error;
   }
+  if (payloadRequiresUpgrade(remotePayload, SYNC_FORMAT_VERSION)) {
+    const error = new Error('client_outdated');
+    error.code = 'client_outdated';
+    throw error;
+  }
+
+  const remoteCircle = remotePayload.circleId || null;
+  const pairId = localState.deviceLink?.pairId || null;
+  const remoteVersion = Number(remotePayload.version || remotePayload.formatVersion || 1);
+
+  // Linked devices: never trust a payload claiming a different circle.
+  // Modern protocol (v3+): missing circleId is also a hard failure.
+  if (pairId) {
+    if (remoteVersion >= 3) {
+      if (!remoteCircle || remoteCircle !== pairId) throw circleMismatchError();
+    } else if (remoteCircle && remoteCircle !== pairId) {
+      throw circleMismatchError();
+    }
+  }
+
   const next = structuredClone(localState);
-  next.circleId = next.circleId || remotePayload.circleId || next.circleId;
+  if (isFlatDayMap(next.answers)) next.answers = nestAnswersMap(next.answers);
+  if (isFlatDayMap(next.reactions)) next.reactions = nestReactionsMap(next.reactions);
+
+  const localCircle = next.activeCircleId || next.circleId || null;
+  const accepted = new Set([localCircle, remoteCircle, pairId].filter(Boolean));
+
+  let circleId;
+  if (pairId) {
+    circleId = pairId;
+    accepted.clear();
+    accepted.add(pairId);
+  } else if (localCircle && remoteCircle && localCircle !== remoteCircle) {
+    circleId = localCircle < remoteCircle ? localCircle : remoteCircle;
+    if (localCircle !== circleId) remapCircle(next, localCircle, circleId);
+  } else {
+    circleId = pairId || expectedSyncCircleId(next) || remoteCircle || localCircle || null;
+  }
+
+  if (circleId) {
+    next.circleId = circleId;
+    next.activeCircleId = circleId;
+  }
+
   next.startedUsingAt = [next.startedUsingAt, remotePayload.startedUsingAt].filter(Boolean).sort()[0] || next.startedUsingAt;
   next.defaultListsSeeded = Boolean(next.defaultListsSeeded || remotePayload.defaultListsSeeded);
 
   if (remotePayload.profile) {
-    // Keep "my" display name for currentRole; adopt partner label from peer profile when empty-ish.
-    if (next.currentRole === 'a') {
-      next.profile.partnerName = remotePayload.profile.name || next.profile.partnerName;
-    } else {
-      next.profile.partnerName = remotePayload.profile.name || next.profile.partnerName;
+    next.profile.partnerName = remotePayload.profile.name || next.profile.partnerName;
+  }
+
+  if (circleId) {
+    next.answers = mergeAnswersForCircle(next.answers, remotePayload.answers || {}, circleId, accepted);
+    next.history = mergeHistoryForCircle(next.history, remotePayload.history || [], circleId, accepted);
+    next.reactions = mergeReactionsForCircle(next.reactions, remotePayload.reactions || {}, circleId, accepted);
+    next.lists = mergeOwnedList(next.lists, remotePayload.lists || [], circleId, accepted);
+    next.listItems = mergeOwnedList(next.listItems, remotePayload.listItems || [], circleId, accepted);
+    next.reservations = mergeOwnedList(next.reservations, remotePayload.reservations || [], circleId, accepted);
+    next.moments = mergeOwnedList(next.moments, remotePayload.moments || [], circleId, accepted);
+    next.mediaAttachments = mergeOwnedList(
+      next.mediaAttachments,
+      remotePayload.mediaAttachments || [],
+      circleId,
+      accepted
+    );
+    next.importantDates = mergeOwnedList(next.importantDates, remotePayload.importantDates || [], circleId, accepted);
+    next.domainEvents = mergeOwnedList(next.domainEvents, remotePayload.domainEvents || [], circleId, accepted);
+
+    next.completedDays = Math.max(Number(next.completedDays) || 0, Number(remotePayload.completedDays) || 0);
+    next.streak = Math.max(Number(next.streak) || 0, Number(remotePayload.streak) || 0);
+    const localDone = next.lastCompletedCalendarDate || '';
+    const remoteDone = remotePayload.lastCompletedCalendarDate || '';
+    if (remoteDone > localDone) next.lastCompletedCalendarDate = remoteDone;
+
+    if (remotePayload.calendarDate && (!next.calendarDate || remotePayload.calendarDate > next.calendarDate)) {
+      next.calendarDate = remotePayload.calendarDate;
+      next.questionId = remotePayload.questionId || next.questionId;
+      next.dayIndex = remotePayload.dayIndex ?? next.dayIndex;
+    } else if (remotePayload.calendarDate === next.calendarDate && remotePayload.questionId) {
+      next.questionId = next.questionId || remotePayload.questionId;
     }
   }
 
-  next.answers = mergeAnswers(next.answers, remotePayload.answers);
-  next.history = mergeHistory(next.history, remotePayload.history);
-  next.reactions = mergeReactions(next.reactions, remotePayload.reactions);
-  next.lists = mergeById(next.lists, remotePayload.lists);
-  next.listItems = mergeById(next.listItems, remotePayload.listItems);
-  next.reservations = mergeById(next.reservations, remotePayload.reservations);
-  next.moments = mergeById(next.moments, remotePayload.moments);
-  next.mediaAttachments = mergeById(next.mediaAttachments, remotePayload.mediaAttachments);
-  next.importantDates = mergeById(next.importantDates, remotePayload.importantDates);
-  next.domainEvents = mergeById(next.domainEvents, remotePayload.domainEvents);
+  if (Array.isArray(remotePayload.periods)) {
+    mergePeriods(next, remotePayload.periods, {
+      now,
+      remoteCircleId: remoteCircle
+    });
+  } else {
+    next.periods = Array.isArray(next.periods) ? next.periods : [];
+    if (pairId) {
+      next.circleId = pairId;
+      next.activeCircleId = next.activeCircleId || pairId;
+    }
+  }
 
-  next.completedDays = Math.max(Number(next.completedDays) || 0, Number(remotePayload.completedDays) || 0);
-  next.streak = Math.max(Number(next.streak) || 0, Number(remotePayload.streak) || 0);
-  const localDone = next.lastCompletedCalendarDate || '';
-  const remoteDone = remotePayload.lastCompletedCalendarDate || '';
-  if (remoteDone > localDone) next.lastCompletedCalendarDate = remoteDone;
-
-  // Shared ritual day: prefer the newer calendar day assignment.
-  if (remotePayload.calendarDate && (!next.calendarDate || remotePayload.calendarDate > next.calendarDate)) {
-    next.calendarDate = remotePayload.calendarDate;
-    next.questionId = remotePayload.questionId || next.questionId;
-    next.dayIndex = remotePayload.dayIndex ?? next.dayIndex;
-  } else if (remotePayload.calendarDate === next.calendarDate && remotePayload.questionId) {
-    next.questionId = next.questionId || remotePayload.questionId;
+  if (remotePayload.gardenContentVersion != null) {
+    next.gardenContentVersion = Math.max(
+      Number(next.gardenContentVersion) || 0,
+      Number(remotePayload.gardenContentVersion) || 0
+    );
   }
 
   return next;

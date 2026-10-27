@@ -1,5 +1,17 @@
+import { periodPayloadList } from '../garden/mergePeriods.js';
+import {
+  currentCircleId,
+  entitiesForCircle,
+  filterAnswersForCircle,
+  filterHistoryForCircle,
+  filterReactionsForCircle
+} from '../garden/ownership.js';
+
 export const SYNC_KIND = 'blizhe-pair-sync';
-export const SYNC_VERSION = 1;
+/** Wire/protocol version for encrypted payload body. */
+export const SYNC_VERSION = 3;
+/** Declared to the server so older clients cannot overwrite newer ciphertext. */
+export const SYNC_FORMAT_VERSION = 3;
 
 const DATA_URL_RE = /^data:/i;
 const MAX_INLINE_URL = 8_192;
@@ -32,13 +44,48 @@ function scrubMoment(moment) {
   };
 }
 
-/** Shared couple archive fields only — never device secrets or local-only prefs. */
+/**
+ * Drop media/moment cross-references that point outside the current circle.
+ */
+function isolateRelated(moments, mediaAttachments, circleId) {
+  const mediaIds = new Set((mediaAttachments || []).map((m) => m.id));
+  return (moments || []).map((moment) => {
+    const next = scrubMoment(moment);
+    if (Array.isArray(next.media)) {
+      next.media = next.media.filter((id) => mediaIds.has(id));
+    }
+    if (Array.isArray(next.relatedListItems)) {
+      // list item ids may be foreign — filtered listItems already scoped; drop orphans later if needed
+    }
+    return { ...next, circleId: next.circleId || circleId };
+  });
+}
+
+/**
+ * Shared couple archive for the **current** circle only.
+ * Unscoped / foreign entities stay local and are never auto-sent.
+ */
 export function buildSyncPayload(state, now = new Date().toISOString()) {
+  const circleId = currentCircleId(state) || state.circleId || null;
+  const lists = entitiesForCircle(state.lists, circleId);
+  const listIds = new Set(lists.map((l) => l.id));
+  const listItems = entitiesForCircle(state.listItems, circleId).filter(
+    (item) => !item.listId || listIds.has(item.listId)
+  );
+  const mediaAttachments = entitiesForCircle(state.mediaAttachments, circleId).map(scrubMedia);
+  const moments = isolateRelated(entitiesForCircle(state.moments, circleId), mediaAttachments, circleId);
+  const itemIds = new Set(listItems.map((i) => i.id));
+  const reservations = entitiesForCircle(state.reservations, circleId).filter(
+    (r) => !r.itemId || itemIds.has(r.itemId)
+  );
+
   return {
     kind: SYNC_KIND,
     version: SYNC_VERSION,
+    formatVersion: SYNC_FORMAT_VERSION,
+    minClientSyncVersion: SYNC_FORMAT_VERSION,
     exportedAt: now,
-    circleId: state.circleId || null,
+    circleId,
     startedUsingAt: state.startedUsingAt || null,
     defaultListsSeeded: Boolean(state.defaultListsSeeded),
     profile: {
@@ -51,19 +98,32 @@ export function buildSyncPayload(state, now = new Date().toISOString()) {
     streak: state.streak || 0,
     completedDays: state.completedDays || 0,
     lastCompletedCalendarDate: state.lastCompletedCalendarDate || null,
-    answers: structuredClone(state.answers || {}),
-    history: structuredClone(state.history || []),
-    reactions: structuredClone(state.reactions || {}),
-    lists: structuredClone(state.lists || []),
-    listItems: structuredClone(state.listItems || []),
-    reservations: structuredClone(state.reservations || []),
-    moments: (state.moments || []).map(scrubMoment),
-    mediaAttachments: (state.mediaAttachments || []).map(scrubMedia),
-    importantDates: structuredClone(state.importantDates || []),
-    domainEvents: structuredClone(state.domainEvents || [])
+    answers: filterAnswersForCircle(state.answers, circleId),
+    history: filterHistoryForCircle(state.history, circleId),
+    reactions: filterReactionsForCircle(state.reactions, circleId),
+    lists: structuredClone(lists),
+    listItems: structuredClone(listItems),
+    reservations: structuredClone(reservations),
+    moments,
+    mediaAttachments,
+    importantDates: structuredClone(entitiesForCircle(state.importantDates, circleId)),
+    domainEvents: structuredClone(entitiesForCircle(state.domainEvents, circleId)),
+    periods: periodPayloadList(state.periods || [], circleId),
+    gardenContentVersion: state.gardenContentVersion || null
   };
 }
 
 export function isSyncPayload(payload) {
-  return Boolean(payload && payload.kind === SYNC_KIND && payload.version === SYNC_VERSION && typeof payload === 'object');
+  return Boolean(
+    payload &&
+      payload.kind === SYNC_KIND &&
+      (payload.version === 1 || payload.version === 2 || payload.version === 3) &&
+      typeof payload === 'object'
+  );
+}
+
+/** True when decrypted remote snapshot needs a newer app. */
+export function payloadRequiresUpgrade(payload, clientFormat = SYNC_FORMAT_VERSION) {
+  const need = Number(payload?.minClientSyncVersion || payload?.formatVersion || payload?.version || 1);
+  return need > clientFormat;
 }

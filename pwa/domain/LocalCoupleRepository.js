@@ -24,6 +24,7 @@ import {
 } from './moments/model.js';
 import { attachMedia, removeMedia, clearLocalPhotoCache, setPhotoStorage } from './media/model.js';
 import { getImportantDates, createImportantDate, deleteImportantDate } from './dates/model.js';
+import { getDayAnswers, currentCircleId, filterHistoryForCircle } from './garden/ownership.js';
 
 export { categoryLabel };
 
@@ -104,6 +105,11 @@ export const initialState = {
   revealHapticDone: {},
   schemaVersion: SCHEMA_VERSION,
   circleId: null,
+  activeCircleId: null,
+  lastBoundPairId: null,
+  /** Proven local solo space; set only for empty new installs, never inferred for legacy. */
+  soloCircleId: null,
+  circleStats: {},
   startedUsingAt: null,
   defaultListsSeeded: false,
   lists: [],
@@ -114,7 +120,9 @@ export const initialState = {
   importantDates: [],
   domainEvents: [],
   photoStorage: 'preview',
-  deviceLink: emptyDeviceLink()
+  deviceLink: emptyDeviceLink(),
+  periods: [],
+  gardenContentVersion: 1
 };
 
 export class LocalCoupleRepository {
@@ -239,7 +247,7 @@ export class LocalCoupleRepository {
 
   getPartnerState(state, role) {
     const key = this.todayKey(state);
-    const answers = state.answers[key] || {};
+    const answers = getDayAnswers(state, key);
     const partner = role === 'a' ? 'b' : 'a';
     return {
       meAnswered: Boolean(answers[role]?.text),
@@ -250,7 +258,9 @@ export class LocalCoupleRepository {
   }
 
   getHistory(state) {
-    return [...(state.history || [])];
+    const circle = currentCircleId(state);
+    if (!circle) return [...(state.history || [])];
+    return filterHistoryForCircle(state.history, circle);
   }
 
   getStreak(state) {

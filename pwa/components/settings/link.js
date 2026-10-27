@@ -46,12 +46,30 @@ export function renderDeviceLink(state) {
 export function renderLocalBackup() {
   return `
     <section class="settings-card">
-      <h2>Копия перед обновлением</h2>
-      <p>Обновление приложения на том же адресе не стирает ответы: они лежат в памяти телефона, а не в кэше. Файл копии пригодится, если телефон сменят. Секрет связи в файл не попадает.</p>
+      <h2>Копия содержимого</h2>
+      <p>Файл восстанавливает ответы, периоды сада, списки и моменты. Секрет связи в обычную копию не попадает — для ключей нужен отдельный recovery-файл.</p>
       <div class="button-row wrap">
         <button class="secondary" id="backup-download" type="button">Скачать копию</button>
         <button class="secondary" id="backup-restore" type="button">Вернуть из файла</button>
       </div>
       <input id="backup-file" type="file" accept="application/json,.json" hidden>
+    </section>`;
+}
+
+export function renderPairRecovery(state) {
+  const linked = state.deviceLink?.status === 'linked' || state.deviceLink?.status === 'waiting';
+  return `
+    <section class="settings-card" id="settings-recovery">
+      <h2>Восстановление связи</h2>
+      <p>Отдельный файл с паролем хранит ключи пары. Без него при смене телефона нужна новая связь. Если потеряны оба телефона и оба файла — данные невосстановимы.</p>
+      <label class="setting-field">Пароль для recovery (мин. 8 символов)
+        <input id="recovery-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="••••••••">
+      </label>
+      <div class="button-row wrap">
+        <button class="secondary" id="recovery-download" type="button" ${linked ? '' : 'disabled'}>Скачать recovery</button>
+        <button class="secondary" id="recovery-restore" type="button">Восстановить связь из файла</button>
+      </div>
+      <input id="recovery-file" type="file" accept="application/json,.json" hidden>
+      <p class="microcopy">Контент ↔ обычная копия. Связь ↔ recovery. Не храните оба файла в одном открытом чате.</p>
     </section>`;
 }
