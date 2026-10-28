@@ -17,6 +17,7 @@
     "ios": "npm run cap:sync:ios && npx cap open ios",
     "test": "node --test pwa/tests/domain.test.js pwa/tests/analytics.test.js pwa/tests/archive.test.js pwa/tests/linkPreview.test.js pwa/tests/pairs.test.js pwa/tests/sync.test.js pwa/tests/garden.test.js pwa/tests/garden.acceptance.test.js pwa/tests/garden.isolation.test.js pwa/tests/garden.ownership-fix.test.js",
     "test:e2e:garden": "node scripts/e2e-garden.mjs",
+    "shots": "node scripts/capture-readme-shots.mjs",
     "test:smoke": "node scripts/smoke-web.mjs",
     "test:e2e": "python pwa/test_pwa.py"
   },

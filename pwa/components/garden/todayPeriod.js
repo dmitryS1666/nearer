@@ -49,17 +49,17 @@ export function renderPeriodTodayBody(state, ctx) {
     return `
       <section class="waiting-card glass-card period-today">
         ${mini}
-        <div class="pill">Период идёт</div>
-        <h2>Следующий вопрос ещё не открыт</h2>
+        <div class="pill">Тема идёт</div>
+        <h2>Следующий вопрос ещё чуть подождёт</h2>
         <p>${
           next?.waitingOnPrevious
-            ? 'Дождитесь взаимного ответа на предыдущий вопрос (возможно, на другом телефоне).'
+            ? `Сначала нужен ответ ${escapeHtml(state.profile.partnerName)} на предыдущий — возможно, на другом телефоне.`
             : next
-              ? `Рекомендуемый день вопроса — ${next.scheduleDay}. Сейчас день ${next.periodDay} периода. Пропуск не сжигает вопрос.`
-              : 'Все вопросы периода пройдены — растение должно расцвести после sync.'
+              ? `Этот вопрос откроется на ${next.scheduleDay}-й день темы. Сейчас у вас день ${next.periodDay}. Пропуск ничего не сжигает.`
+              : 'Все вопросы этой темы уже позади — растению осталось расцвести.'
         }</p>
         <div class="button-row wrap" style="justify-content:center">
-          <button class="primary" data-nav="garden">Открыть сад</button>
+          <button class="primary" data-nav="garden">В сад</button>
         </div>
       </section>`;
   }
@@ -69,15 +69,15 @@ export function renderPeriodTodayBody(state, ctx) {
       <section class="question-card glass-card period-today">
         ${mini}
         <div class="question-meta">
-          <span class="pill">${question.kind === 'final' ? 'Финал периода' : `Вопрос ${question.order} · период`}</span>
+          <span class="pill">${question.kind === 'final' ? 'Финал темы' : `Вопрос ${question.order}`}</span>
           <span>${escapeHtml(period.contentSnapshot.name)}</span>
         </div>
         <h2>${escapeHtml(question.text)}</h2>
-        <p class="question-note">Ответ партнёра откроется после вашего. Рост растения — только когда ответите оба.</p>
+        <p class="question-note">Партнёр увидит ваш ответ, когда ответит тоже. Растение растёт только вдвоём.</p>
         <form id="period-answer-form">
-          <textarea id="period-answer-text" maxlength="700" rows="4" placeholder="Напишите бережно и по делу…" enterkeyhint="done"></textarea>
-          <div class="textarea-footer"><span id="period-char-count">0 / 700</span><span>Не влияет на счётчик дней</span></div>
-          <button class="primary large full sticky-cta" type="submit">Отправить ответ <span>♥</span></button>
+          <textarea id="period-answer-text" maxlength="700" rows="4" placeholder="Как чувствуешь — так и напиши…" enterkeyhint="done"></textarea>
+          <div class="textarea-footer"><span id="period-char-count">0 / 700</span><span>Это про сад, не про счётчик дней</span></div>
+          <button class="primary large full sticky-cta" type="submit">Отправить <span>♥</span></button>
         </form>
       </section>`;
   }
@@ -87,9 +87,9 @@ export function renderPeriodTodayBody(state, ctx) {
       <section class="waiting-card glass-card period-today">
         ${mini}
         <div class="pulse-heart">♥</div>
-        <div class="pill">Ответ отправлен</div>
-        <h2>Ждём партнёра</h2>
-        <p>Растение подрастёт только после взаимного ответа на этот вопрос.</p>
+        <div class="pill">Отправлено</div>
+        <h2>Ждём ${escapeHtml(state.profile.partnerName)}</h2>
+        <p>Когда ответите оба, растение чуть подрастёт.</p>
         <div class="waiting-orbit">
           <div>Ты ✓</div><span class="waiting-dots"><i></i><i></i><i></i></span>
           <div>${escapeHtml(state.profile.partnerName)} …</div>
@@ -106,7 +106,7 @@ export function renderPeriodTodayBody(state, ctx) {
       ${mini}
       <div class="reveal-heading">
         <div class="confetti">✦</div>
-        <div><div class="eyebrow">Взаимный ответ</div><h2>${escapeHtml(question.text)}</h2></div>
+        <div><div class="eyebrow">Оба ответили</div><h2>${escapeHtml(question.text)}</h2></div>
       </div>
       <div class="answers-grid">
         <article class="answer-card violet"><span>${escapeHtml(state.profile.name)}</span><p>${escapeHtml(ctx.slot.a?.text || '—')}</p></article>
@@ -115,17 +115,17 @@ export function renderPeriodTodayBody(state, ctx) {
       <div class="completion-card">
         <div><span class="completion-icon">🌿</span>
           <div><b>${escapeHtml(progress.stage.name)}</b>
-          <small>${progress.mutualCount} из ${progress.required} · переход к следующему, когда он откроется по расписанию</small></div>
+          <small>${progress.mutualCount} из ${progress.required} · дальше — когда откроется следующий вопрос</small></div>
         </div>
         <button class="primary" data-nav="garden">В сад</button>
       </div>
       ${
         period.contentSnapshot.challenge
           ? `<div class="settings-card" style="margin-top:14px">
-              <h2>Мини-челлендж</h2>
+              <h2>Маленький челлендж</h2>
               <p>${escapeHtml(period.contentSnapshot.challenge.text)}</p>
               <button class="secondary" data-toggle-challenge="${escapeHtml(period.id)}">${
-                period.challenge?.[state.currentRole]?.done ? 'Снять отметку' : 'Отметить «сделано»'
+                period.challenge?.[state.currentRole]?.done ? 'Снять отметку' : 'Отметить «сделали»'
               }</button>
             </div>`
           : ''
@@ -136,7 +136,7 @@ export function renderPeriodTodayBody(state, ctx) {
 export function renderOptionalLegacyDaily(state, legacyHtml) {
   return `
     <details class="legacy-daily">
-      <summary>Дополнительный вопрос дня (не растит сад периода)</summary>
+      <summary>Ещё один вопрос на сегодня</summary>
       ${legacyHtml}
     </details>`;
 }

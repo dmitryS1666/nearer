@@ -224,8 +224,13 @@ function hasNotificationPrefsEnabled() {
 }
 
 function streakBubble() {
-  const label = daysInARowLabel(state.streak);
-  return `<div class="streak-bubble" aria-label="Серия: ${state.streak} ${label}">${uiIcon('flame')}<div class="streak-meta"><b>${state.streak}</b><small>${label}</small></div></div>`;
+  const n = Number(state.streak) || 0;
+  const lit = n > 0;
+  const label = lit ? daysInARowLabel(n) : 'начнём серию';
+  return `<div class="streak-chip ${lit ? 'is-lit' : 'is-calm'}" aria-label="Серия: ${n} ${label}">
+    <span class="streak-flame" aria-hidden="true">${uiIcon('flame')}</span>
+    <span class="streak-meta"><b>${n}</b><small>${label}</small></span>
+  </div>`;
 }
 
 function freshArchiveUi() {
@@ -386,23 +391,35 @@ function renderOnboarding() {
   track('onboarding_started');
   app.innerHTML = `
   <div class="onboarding-page">
-    <div class="onboarding-visual">
-      <div class="orbit orbit-a">💜</div><div class="orbit orbit-b">✨</div>
+    <div class="onboarding-visual" aria-hidden="true">
+      <span class="glow glow-a"></span>
+      <span class="glow glow-b"></span>
+      <span class="glow glow-c"></span>
+      <span class="spark spark-1"></span>
+      <span class="spark spark-2"></span>
+      <span class="spark spark-3"></span>
+      <span class="spark spark-4"></span>
+      <span class="spark spark-5"></span>
+      <div class="orbit orbit-a">💜</div>
+      <div class="orbit orbit-b">✨</div>
+      <div class="orbit orbit-c">🌱</div>
+      <div class="orbit orbit-d">💬</div>
+      <div class="orbit orbit-e">⭐</div>
+      <div class="orbit orbit-f">🤍</div>
       <div class="hero-heart">♥</div>
     </div>
     <section class="onboarding-card">
-      <div class="eyebrow">Ежедневный ритуал</div>
+      <div class="eyebrow">Для двоих</div>
       <h1>Ближе каждый день.</h1>
-      <p class="lead">Один вопрос. Два честных ответа. Маленький ритуал, который помогает не терять друг друга в обычных днях.</p>
-      <div class="feature-row"><span>🔒</span><div><b>Приватно</b><small>Данные остаются на этом устройстве.</small></div></div>
-      <div class="feature-row"><span>💬</span><div><b>1 вопрос в день</b><small>Без бесконечной ленты и перегруза.</small></div></div>
-      <div class="feature-row"><span>🌱</span><div><b>Общий прогресс</b><small>Каждый завершённый день растит ваш сад.</small></div></div>
+      <p class="lead">Один вопрос — и два ваших ответа. Маленькая привычка, чтобы не терять друг друга в суете.</p>
+      <div class="feature-row"><span>🔒</span><div><b>Только ваши</b><small>Ответы живут на ваших телефонах.</small></div></div>
+      <div class="feature-row"><span>💬</span><div><b>Без ленты</b><small>Один разговор в день — и можно жить дальше.</small></div></div>
+      <div class="feature-row"><span>🌱</span><div><b>Общий сад</b><small>Когда отвечаете вдвоём, растение растёт.</small></div></div>
       <form id="start-form" class="onboarding-form">
-        <label>Как зовут тебя?<input name="name" maxlength="24" value="" placeholder="Твоё имя" required></label>
-        <label>Как зовут партнёра?<input name="partnerName" maxlength="24" value="" placeholder="Имя партнёра" required></label>
+        <label>Как тебя зовут?<input name="name" maxlength="24" value="" placeholder="Твоё имя" required></label>
+        <label>А партнёра?<input name="partnerName" maxlength="24" value="" placeholder="Имя партнёра" required></label>
         <button class="primary large" type="submit">Начать <span>→</span></button>
       </form>
-      <p class="microcopy">Тестовая версия хранит данные локально и не синхронизирует их с другим человеком.</p>
     </section>
   </div>`;
   document.getElementById('start-form').addEventListener('submit', async (e) => {
@@ -414,7 +431,7 @@ function renderOnboarding() {
     coupleRepository.ensureTodayQuestion(state);
     await saveState();
     await track('onboarding_completed');
-    toast('Добро пожаловать 💜');
+    toast('Рады вас видеть 💜');
     render();
   });
 }
@@ -427,24 +444,24 @@ function legacyDailyBody() {
   if (dayDone) {
     return `
       <section class="waiting-card glass-card">
-        <div class="pill">День завершён</div>
-        <h2>Дополнительный ритуал на сегодня уже сохранён</h2>
-        <p>Он не растит тематическое растение. Загляните в сад периода.</p>
+        <div class="pill">На сегодня хватит</div>
+        <h2>Этот разговор уже сохранён</h2>
+        <p>Он для вас двоих — сад растёт от темы периода. Загляните туда, если хочется.</p>
         <div class="button-row wrap" style="justify-content:center">
-          <button class="primary" data-nav="garden">Открыть сад</button>
+          <button class="primary" data-nav="garden">В сад</button>
         </div>
       </section>`;
   }
   if (!meAnswered()) {
     return `
       <section class="question-card glass-card">
-        <div class="question-meta"><span class="pill">${escapeHtml(q.categoryLabel)}</span><span>Дополнительно</span></div>
+        <div class="question-meta"><span class="pill">${escapeHtml(q.categoryLabel)}</span><span>По желанию</span></div>
         <h2>${escapeHtml(q.text)}</h2>
-        <p class="question-note">Не даёт прогресс тематическому растению.</p>
+        <p class="question-note">Это просто ещё один разговор — сад от него не растёт.</p>
         <form id="answer-form">
-          <textarea id="answer-text" maxlength="700" rows="4" placeholder="Напиши то, что действительно хочется сказать…" enterkeyhint="done"></textarea>
-          <div class="textarea-footer"><span id="char-count">0 / 700</span><span>Черновик сохраняется</span></div>
-          <button class="primary large full sticky-cta" type="submit">Отправить ответ <span>♥</span></button>
+          <textarea id="answer-text" maxlength="700" rows="4" placeholder="Напиши, как есть…" enterkeyhint="done"></textarea>
+          <div class="textarea-footer"><span id="char-count">0 / 700</span><span>Черновик сохраняется сам</span></div>
+          <button class="primary large full sticky-cta" type="submit">Отправить <span>♥</span></button>
         </form>
       </section>`;
   }
@@ -452,20 +469,20 @@ function legacyDailyBody() {
     return `
       <section class="waiting-card glass-card">
         <div class="pulse-heart">♥</div>
-        <h2>Ждём ответ партнёра</h2>
-        <p>Дополнительный вопрос дня — без влияния на сад периода.</p>
+        <h2>Ждём ответ ${escapeHtml(state.profile.partnerName)}</h2>
+        <p>Можно пока заняться своими делами — мы напомним, когда ответ придёт.</p>
       </section>`;
   }
   const key = todayKey();
   return `
     <section class="reveal-section ${revealAnimatedForKey === key ? '' : 'reveal-enter'}">
-      <div class="reveal-heading"><div class="confetti">✦</div><div><div class="eyebrow">Ответы открыты</div><h2>${escapeHtml(q.text)}</h2></div></div>
+      <div class="reveal-heading"><div class="confetti">✦</div><div><div class="eyebrow">Оба ответили</div><h2>${escapeHtml(q.text)}</h2></div></div>
       <div class="answers-grid">
         ${answerCard(state.profile.name, answers.a?.text, 'violet')}
         ${answerCard(state.profile.partnerName, answers.b?.text, 'rose')}
       </div>
       <div class="reaction-row">
-        <span class="reaction-label">Оставить реакцию:</span>
+        <span class="reaction-label">Реакция:</span>
         <div class="reaction-actions" role="group" aria-label="Реакции">
         ${['❤️', '🥹', '😂', '🤗']
           .map(
@@ -476,8 +493,8 @@ function legacyDailyBody() {
         </div>
       </div>
       <div class="completion-card">
-        <div><span class="completion-icon">📝</span><div><b>В историю дней</b><small>Не увеличивает рост тематического растения.</small></div></div>
-        <button class="primary" id="complete-day">Сохранить день →</button>
+        <div><span class="completion-icon">📝</span><div><b>В историю</b><small>Просто сохранить разговор — без роста сада.</small></div></div>
+        <button class="primary" id="complete-day">Сохранить →</button>
       </div>
     </section>`;
 }
@@ -498,11 +515,11 @@ function todayView() {
     body = `
       <section class="waiting-card glass-card">
         <div class="pulse-heart">🌱</div>
-        <div class="pill">Сад отношений</div>
-        <h2>Начните тематический период</h2>
-        <p>Выберите растение в саду. Пока периода нет — можно ответить на добровольный вопрос дня.</p>
+        <div class="pill">Сад</div>
+        <h2>Выберите тему вместе</h2>
+        <p>В саду — растения на выбор. Пока темы нет, можно просто ответить на вопрос дня.</p>
         <div class="button-row wrap" style="justify-content:center">
-          <button class="primary" data-nav="garden">Выбрать тему</button>
+          <button class="primary" data-nav="garden">К темам</button>
         </div>
       </section>
       ${renderOptionalLegacyDaily(state, legacyDailyBody())}`;
@@ -513,12 +530,12 @@ function todayView() {
   const syncBanner = state.deviceLink?.syncError
     ? `<div class="sync-banner warn" role="status">${escapeHtml(pairErrorCopy({ code: state.deviceLink.syncError }))}</div>`
     : !navigator.onLine
-      ? `<div class="sync-banner" role="status">Офлайн — ответы сохраняются на телефоне и уйдут при следующей синхронизации.</div>`
+      ? `<div class="sync-banner" role="status">Сейчас без сети — ответы уже на телефоне и уйдут, как только появится связь.</div>`
       : '';
 
   return shell(`
     <section class="dashboard-head">
-      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>${escapeHtml(todayGreeting())}</h1><p class="today-lead">Вопрос периода растит растение. Остальное — по желанию.</p></div>
+      <div class="dashboard-copy"><div class="eyebrow">Сегодня · ${escapeHtml(roleLabel())}</div><h1>${escapeHtml(todayGreeting())}</h1><p class="today-lead">Вопрос темы растит сад. Остальное — если хочется поговорить ещё.</p></div>
       ${streakBubble()}
     </section>
     ${notificationNudge()}
@@ -556,8 +573,8 @@ function notificationNudge() {
     <div class="nudge-main">
       <span class="nudge-icon" aria-hidden="true">${uiIcon('bell')}</span>
       <div class="nudge-copy">
-        <b>Не пропускайте ежедневный вопрос</b>
-        <small>Мягкое напоминание в выбранное время.</small>
+        <b>Напоминание о вопросе</b>
+        <small>Тихое уведомление в удобное время.</small>
       </div>
     </div>
     <button class="ghost" id="enable-push-nudge" type="button">Настроить</button>
@@ -634,29 +651,29 @@ function settingsView() {
   const isNative = runtime.isNative();
   return shell(
     `
-    <section class="page-head"><div><div class="eyebrow">Пара и напоминания</div><h1>Настройки</h1><p>Имена, уведомления и сведения о тестовой версии.</p></div></section>
+    <section class="page-head"><div><div class="eyebrow">Вы и напоминания</div><h1>Настройки</h1><p>Имена, уведомления и пара мелочей о приложении.</p></div></section>
 
     <section class="settings-card">
       <h2>Пара</h2>
       <label class="setting-field">Твоё имя<input id="name-setting" value="${escapeHtml(state.profile.name)}" maxlength="24"></label>
       <label class="setting-field">Имя партнёра<input id="partner-setting" value="${escapeHtml(state.profile.partnerName)}" maxlength="24"></label>
-      <button class="secondary" id="save-names">Сохранить имена</button>
+      <button class="secondary" id="save-names">Сохранить</button>
     </section>
 
     ${renderDeviceLink(state)}
 
     <section class="settings-card" id="settings-notifications">
       <h2>Уведомления</h2>
-      ${prefToggle('daily', 'Ежедневный вопрос', 'Мягкое напоминание один раз в день')}
-      ${prefToggle('partner', 'Партнёр ответил', 'Когда можно заходить дальше')}
-      ${prefToggle('reveal', 'Ответы открыты', 'Когда оба ответа готовы')}
-      ${prefToggle('streak', 'Серия под угрозой', 'Необязательное напоминание вечером')}
-      <label class="setting-field inline">Время напоминания<input id="reminder-time" type="time" value="${state.reminderTime}"></label>
+      ${prefToggle('daily', 'Вопрос дня', 'Тихое напоминание раз в день')}
+      ${prefToggle('partner', 'Партнёр ответил', 'Когда можно заглянуть дальше')}
+      ${prefToggle('reveal', 'Оба ответили', 'Когда можно читать друг друга')}
+      ${prefToggle('streak', 'Серия под риском', 'Необязательно вечером')}
+      <label class="setting-field inline">Время<input id="reminder-time" type="time" value="${state.reminderTime}"></label>
       <div class="button-row wrap" style="margin-top:12px">
         <button class="primary" id="enable-push">Разрешить уведомления</button>
         ${state.testLabUnlocked ? `<button class="secondary" id="test-notification">Тестовое уведомление</button>` : ''}
       </div>
-      <p class="microcopy">${isNative ? 'Напоминания работают через локальные уведомления устройства.' : 'В браузере доступны уведомления страницы; фоновый push требует отдельной настройки.'}</p>
+      <p class="microcopy">${isNative ? 'Напоминания приходят с телефона.' : 'В браузере это уведомления страницы; фоновый push — отдельная история.'}</p>
     </section>
 
     ${renderPhotoSettings(state)}
@@ -664,8 +681,8 @@ function settingsView() {
     ${renderPairRecovery(state)}
 
     <section class="settings-card">
-      <h2>О тестовой версии</h2>
-      <p>Ответы, периоды сада и история хранятся на этом телефоне. Сервер, если им пользуются, знает только связь двух устройств и не получает тексты. Синхронизация сада — end-to-end.</p>
+      <h2>О приложении</h2>
+      <p>Ответы, сад и история живут на ваших телефонах. Сервер видит только связь устройств — не тексты. Между телефонами всё шифруется.</p>
       <div class="diagnostic-list">
         <div><span>Версия</span><b id="version-tap">${config.appName} ${config.versionName}</b></div>
         <div><span>Сборка</span><b>${config.buildLabel}</b></div>
@@ -866,7 +883,7 @@ function bindToday() {
     await setValue(draftKey, '');
     await saveState();
     await track('answer_submitted', { questionId: state.questionId, length: text.length });
-    toast('Ответ отправлен ❤️');
+    toast('Отправлено ❤️');
     if (!isLivePair()) demoPartner.scheduleAfterUserAnswer(key);
     render();
   });
@@ -933,7 +950,7 @@ async function completeDay() {
   await saveState();
   await track('day_completed', { streak: state.streak, completedDays: state.completedDays });
   const mile = streakMilestone(state.streak);
-  toast(mile ? `🔥 ${state.streak} дней вместе — веха!` : 'День сохранён. Ваш сад подрос 🌱');
+  toast(mile ? `🔥 ${state.streak} дней вместе — это веха!` : 'Сохранили. Сад чуть подрос 🌱');
   triggerGardenAnim(prevCompleted, state.completedDays);
   nav('garden');
 }

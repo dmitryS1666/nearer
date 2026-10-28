@@ -26,7 +26,13 @@ IndexedDB                          pairing codes (hash)                IndexedDB
 
 ## Скриншоты (мобильная вёрстка)
 
-Актуальные кадры ~390×844 (папка `docs/screenshots/new/`).
+Актуальные кадры ~390×844 (папка `docs/screenshots/new/` + `01`…`08`).
+
+Обновить после правок UI (нужен `npm run dev` на :4173):
+
+```bash
+npm run shots
+```
 
 | Наше | Хотелки | Куда сходить | Моменты |
 |:---:|:---:|:---:|:---:|
@@ -36,7 +42,7 @@ IndexedDB                          pairing codes (hash)                IndexedDB
 |:---:|:---:|:---:|:---:|
 | ![Момент](docs/screenshots/new/moment.png) | ![Share](docs/screenshots/new/share.png) | ![История](docs/screenshots/new/history.png) | ![Код](docs/screenshots/new/pair-code.png) |
 
-Ритуал «Сегодня» / сад / онбординг (ранние кадры): `docs/screenshots/01-…08-…`.
+Ритуал: онбординг / сегодня / ожидание / ответы / сад / история / плюс / настройки — `docs/screenshots/01-…08-…`.
 
 ## Быстрый старт (web)
 

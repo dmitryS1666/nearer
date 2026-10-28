@@ -39,22 +39,22 @@ export function bindPeriodTodayHandlers({
     const ctx = todayPeriodMode(state);
     if (!period || !ctx.question) return;
     const text = (textarea?.value || '').trim();
-    if (text.length < 2) return toast('Напишите хотя бы пару слов', 'warn');
+    if (text.length < 2) return toast('Напиши хотя бы пару слов', 'warn');
     const prevStage = derivePeriodProgress(period).stage.id;
     let result;
     try {
       result = submitPeriodAnswer(state, period.id, ctx.question.id, state.currentRole, text);
     } catch (err) {
-      return toast(err.code === 'question_locked' ? 'Вопрос ещё не открыт' : 'Не удалось сохранить ответ', 'warn');
+      return toast(err.code === 'question_locked' ? 'Этот вопрос ещё закрыт' : 'Не получилось сохранить', 'warn');
     }
     await saveState();
     scheduleCoupleSync();
     await track('period_answer_submitted', { periodId: period.id, questionId: ctx.question.id });
     if (result.mutualIncreased) {
       triggerPeriodAnim(period, prevStage, result);
-      toast(result.bloomEvent ? 'Период завершён — растение расцвело 🌸' : 'Взаимный ответ! Растение подросло');
+      toast(result.bloomEvent ? 'Тема завершена — растение расцвело 🌸' : 'Оба ответили — растение подросло');
     } else {
-      toast('Ответ отправлен');
+      toast('Отправлено');
     }
     render();
   });
@@ -63,12 +63,12 @@ export function bindPeriodTodayHandlers({
       const state = getState();
       const id = el.dataset.toggleChallenge;
       const period = getPeriodById(state, id);
-      if (!period) return toast('Период другой пары недоступен', 'warn');
+      if (!period) return toast('Эта тема сейчас недоступна', 'warn');
       const done = !period?.challenge?.[state.currentRole]?.done;
       setChallengeDone(state, id, state.currentRole, done);
       await saveState();
       scheduleCoupleSync();
-      toast(done ? 'Челлендж отмечен' : 'Отметка снята');
+      toast(done ? 'Отметили' : 'Отметку сняли');
       render();
     })
   );
@@ -92,23 +92,23 @@ export function bindGardenHandlers({
         });
         await saveState();
         scheduleCoupleSync();
-        toast(`Период «${period.contentSnapshot.name}» начат`);
+        toast(`Тема «${period.contentSnapshot.name}» началась`);
         route.periodId = null;
         nav('today');
       } catch (err) {
-        toast(err.code === 'active_period_exists' ? 'Сначала отложите текущую тему' : 'Не удалось начать период', 'warn');
+        toast(err.code === 'active_period_exists' ? 'Сначала отложите текущую тему' : 'Не получилось начать', 'warn');
       }
     })
   );
   document.querySelectorAll('[data-pause-period]').forEach((el) =>
     el.addEventListener('click', async () => {
-      if (!confirm('Отложить тему? Ответы и стадия сохранятся. Можно возобновить позже или начать другую тему.')) {
+      if (!confirm('Отложить тему? Ответы сохранятся — можно вернуться позже или выбрать другую.')) {
         return;
       }
       pausePeriod(getState(), el.dataset.pausePeriod);
       await saveState();
       scheduleCoupleSync();
-      toast('Тема отложена');
+      toast('Отложили');
       route.periodId = null;
       render();
     })
@@ -119,11 +119,11 @@ export function bindGardenHandlers({
         resumePeriod(getState(), el.dataset.resumePeriod);
         await saveState();
         scheduleCoupleSync();
-        toast('Тема возобновлена');
+        toast('Снова в деле');
         route.periodId = null;
         render();
       } catch (err) {
-        toast(err.code === 'active_period_exists' ? 'Уже есть активная тема' : 'Не удалось возобновить', 'warn');
+        toast(err.code === 'active_period_exists' ? 'Сначала закончите или отложите текущую' : 'Не получилось вернуть', 'warn');
       }
     })
   );

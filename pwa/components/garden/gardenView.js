@@ -55,26 +55,26 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
         </div>
         <div class="pill soft-earth">${escapeHtml(active.contentSnapshot.plantType)}</div>
         <h2>${escapeHtml(active.contentSnapshot.name)}</h2>
-        <p>${escapeHtml(progress.stage.name)} · ${progress.mutualCount} из ${progress.required} взаимных ответов</p>
+        <p>${escapeHtml(progress.stage.name)} · ${progress.mutualCount} из ${progress.required} ответов вдвоём</p>
         <div class="progress-track"><div class="progress-bar garden-bar" style="width:${progress.progressPercent}%"></div></div>
         ${
           active.conflictNote === 'dual_active_paused'
-            ? `<p class="microcopy">После синхронизации эта тема осталась активной; другая отложена без потери ответов.</p>`
+            ? `<p class="microcopy">После связи телефонов эта тема осталась главной — другую мы тихо отложили, ответы на месте.</p>`
             : ''
         }
         <p class="microcopy">${
           next?.unlocked
-            ? 'Есть открытый вопрос — продолжите на экране «Сегодня».'
+            ? 'Есть открытый вопрос — зайдите в «Сегодня».'
             : next
               ? next.waitingOnPrevious
-                ? 'Сначала завершите предыдущий вопрос вдвоём.'
-                : `Следующий вопрос — с дня ${next.scheduleDay} периода (сейчас день ${next.periodDay}).`
-              : 'Все вопросы периода открыты.'
+                ? 'Сначала дождитесь ответа друг друга на предыдущий.'
+                : `Следующий вопрос — с ${next.scheduleDay}-го дня темы (сейчас день ${next.periodDay}).`
+              : 'Все вопросы этой темы уже открыты.'
         }</p>
         <div class="button-row wrap" style="justify-content:center;margin-top:14px">
           <button class="primary" data-nav="today">К вопросу</button>
           <button class="secondary" data-period-history="${escapeHtml(active.id)}">История</button>
-          <button class="ghost" data-pause-period="${escapeHtml(active.id)}">Отложить тему</button>
+          <button class="ghost" data-pause-period="${escapeHtml(active.id)}">Отложить</button>
         </div>
       </section>`;
   } else {
@@ -82,11 +82,11 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
       <section class="garden-hero glass-card terrace">
         <div class="terrace-sky" aria-hidden="true"></div>
         <div class="plant-stage-wrap empty-pot">${renderPlantSvg('seed', { pot: '#8B7355', leaf: '#6A8F6A', accent: '#C5D4A8', soil: '#5C4A3A', bloom: '#E8F0D8' })}</div>
-        <h2>Выберите тему</h2>
-        <p>Один период — одно растение. Растение растёт только от взаимных ответов.</p>
+        <h2>Какую тему посадим?</h2>
+        <p>Одно растение за раз. Оно растёт, когда отвечаете оба.</p>
       </section>
       <section class="theme-picker">
-        <h3>Темы для нового периода</h3>
+        <h3>Темы</h3>
         <div class="theme-grid">
           ${GARDEN_THEMES.map(
             (t) => `
@@ -104,7 +104,7 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
   const collection = [...completed, ...paused];
   const collectionHtml =
     collection.length === 0 && !memorial
-      ? `<p class="microcopy garden-hint">Завершённые и отложенные растения появятся здесь. Лимита на коллекцию нет.</p>`
+      ? `<p class="microcopy garden-hint">Здесь появятся растения, которые вы вырастили или отложили — сколько угодно.</p>`
       : `<section class="garden-collection">
           <h3>Коллекция</h3>
           <div class="plant-slots">
@@ -113,7 +113,7 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
                 ? `<button type="button" class="plant-slot memorial" disabled title="Памятный сад ранних дней">
                     <span class="memorial-emoji">${memorial.stage.icon}</span>
                     <b>Памятный сад</b>
-                    <small>${state.completedDays} совместных дней · не тематический период</small>
+                    <small>${state.completedDays} дней вместе · до тем с растениями</small>
                   </button>`
                 : ''
             }
@@ -136,11 +136,11 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
           ${
             paused.length && !active
               ? `<div class="paused-actions">
-                  <p class="microcopy">Отложенные можно возобновить, если нет активного периода.</p>
+                  <p class="microcopy">Отложенное можно снова взять в работу, когда нет другой активной темы.</p>
                   ${paused
                     .map(
                       (p) =>
-                        `<button class="secondary" data-resume-period="${escapeHtml(p.id)}">Возобновить «${escapeHtml(p.contentSnapshot.name)}»</button>`
+                        `<button class="secondary" data-resume-period="${escapeHtml(p.id)}">Вернуть «${escapeHtml(p.contentSnapshot.name)}»</button>`
                     )
                     .join('')}
                 </div>`
@@ -148,7 +148,7 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
           }
           ${
             !active && completed.length
-              ? `<div class="button-row wrap" style="margin-top:12px"><button class="primary" data-show-themes>Новый период</button></div>`
+              ? `<div class="button-row wrap" style="margin-top:12px"><button class="primary" data-show-themes>Новая тема</button></div>`
               : ''
           }
         </section>`;
@@ -173,9 +173,9 @@ export function renderGardenHome(state, { gardenAnim = null, selectedPeriodId = 
   return `
     <section class="page-head">
       <div class="dashboard-copy">
-        <div class="eyebrow">Сад отношений</div>
+        <div class="eyebrow">Сад</div>
         <h1>Наша терраса</h1>
-        <p>Каждый период становится растением — визуальной памятью ваших ответов.</p>
+        <p>Каждая тема становится растением — живой памяткой о ваших разговорах.</p>
       </div>
     </section>
     ${hero}
@@ -194,10 +194,10 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
     <section class="page-head">
       <div class="dashboard-copy">
         <button type="button" class="ghost" data-garden-back>← К саду</button>
-        <div class="eyebrow">История растения</div>
+        <div class="eyebrow">История</div>
         <h1>${escapeHtml(period.contentSnapshot.plantType)}</h1>
         <p>${escapeHtml(period.contentSnapshot.name)} · ${
-          period.status === 'completed' ? 'завершён' : period.status === 'paused' ? 'отложен' : 'активен'
+          period.status === 'completed' ? 'готово' : period.status === 'paused' ? 'отложено' : 'растёт'
         }</p>
       </div>
     </section>
@@ -209,13 +209,13 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
         })}
       </div>
       <div class="milestones">
-        <span>Начало: <b>${escapeHtml(formatDate(period.startDate))}</b></span>
-        <span>${period.completedAt ? `Завершение: <b>${escapeHtml(formatDate(period.completedAt))}</b>` : `День периода: <b>${day}</b>`}</span>
+        <span>Начали: <b>${escapeHtml(formatDate(period.startDate))}</b></span>
+        <span>${period.completedAt ? `Завершили: <b>${escapeHtml(formatDate(period.completedAt))}</b>` : `День темы: <b>${day}</b>`}</span>
       </div>
       <p>${escapeHtml(progress.stage.name)} · ${progress.mutualCount}/${progress.required}</p>
     </section>
     <section class="flower-qa">
-      <h3>Вопросы и ответы</h3>
+      <h3>Ваши ответы</h3>
       ${questions
         .map((q) => {
           const slot = period.answers?.[q.id] || {};
@@ -231,17 +231,17 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
         .join('')}
     </section>
     <section class="settings-card">
-      <h2>Выводы периода</h2>
-      <p class="microcopy">Из финальных ответов каждого — текст партнёра не перезаписывается.</p>
+      <h2>Ваши выводы</h2>
+      <p class="microcopy">Каждый пишет своё — чужой текст не затирается.</p>
       <div class="answers-grid">
         <div class="answer-card violet"><span>${escapeHtml(state.profile.name)}</span><p>${escapeHtml(conclusions.a?.text || 'Ещё нет')}</p></div>
         <div class="answer-card rose"><span>${escapeHtml(state.profile.partnerName)}</span><p>${escapeHtml(conclusions.b?.text || 'Ещё нет')}</p></div>
       </div>
     </section>
     <section class="settings-card">
-      <h2>Мини-челлендж</h2>
+      <h2>Маленький челлендж</h2>
       <p>${escapeHtml(period.contentSnapshot.challenge?.text || '')}</p>
-      <p class="microcopy">Добровольно · не влияет на рост растения</p>
+      <p class="microcopy">По желанию · на рост растения не влияет</p>
       <div class="milestones">
         <span>${escapeHtml(state.profile.name)}: <b>${period.challenge?.a?.done ? 'сделано' : 'пока нет'}</b></span>
         <span>${escapeHtml(state.profile.partnerName)}: <b>${period.challenge?.b?.done ? 'сделано' : 'пока нет'}</b></span>

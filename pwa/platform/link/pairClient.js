@@ -51,20 +51,20 @@ export function putPairSync(token, body) {
 }
 
 export function pairErrorCopy(error) {
-  if (error?.code === 'rate_limited') return 'Слишком много попыток. Подождите немного.';
-  if (error?.code === 'code_invalid') return 'Код не подошёл или уже истёк.';
+  if (error?.code === 'rate_limited') return 'Слишком много попыток подряд. Подождите чуть-чуть.';
+  if (error?.code === 'code_invalid') return 'Код не подошёл или уже просрочен.';
   if (error?.code === 'unauthorized') return 'Связь с этого телефона уже не действует.';
   if (error?.code === 'public_key_required' || error?.code === 'crypto_unavailable') {
-    return 'Этот телефон не может установить защищённую связь.';
+    return 'На этом телефоне защищённую связь сейчас не собрать.';
   }
-  if (error?.code === 'decrypt_failed') return 'Не удалось расшифровать данные пары. Пересоздайте связь.';
+  if (error?.code === 'decrypt_failed') return 'Не получилось прочитать данные пары. Свяжитесь заново.';
   if (error?.code === 'sync_circle_mismatch') {
-    return 'Снимок синхронизации принадлежит другой паре. Локальный архив не изменён; сервер не перезаписан.';
+    return 'Пришли данные другой пары. У вас на телефоне ничего не трогали, сервер тоже не перезаписывали.';
   }
-  if (error?.code === 'sync_conflict') return 'Синхронизация не успела. Попробуйте ещё раз.';
+  if (error?.code === 'sync_conflict') return 'Не успели обновиться. Попробуйте ещё раз.';
   if (error?.code === 'client_outdated') {
-    return 'Партнёр уже на новой версии. Обновите приложение, чтобы синхронизировать сад.';
+    return 'У партнёра уже новая версия. Обновите приложение, чтобы сад снова сходился.';
   }
-  if (error?.code === 'too_large') return 'Слишком много данных для синхронизации (уберите тяжёлые фото с телефона).';
-  return 'Сервер связи сейчас недоступен. Ответы на телефоне в безопасности.';
+  if (error?.code === 'too_large') return 'Слишком много данных для обновления — уберите тяжёлые фото с телефона.';
+  return 'Связь сейчас недоступна. Ответы на телефоне на месте.';
 }
