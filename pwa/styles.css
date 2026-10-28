@@ -246,6 +246,14 @@
   font-weight:700;
 }
 .sync-banner.warn{background:#fde8e8;color:#8a3030}
+.install-nudge .nudge-actions{display:flex;gap:8px;flex:0 0 auto;align-items:center}
+.install-nudge .install-nudge-cta{background:#ffffff22;border-color:#ffffff3a;font-weight:800}
+.install-steps{margin:0;padding:0 0 0 18px;color:var(--muted);font-size:13px;line-height:1.55}
+.install-steps li{margin:0 0 6px}
+@media(max-width:720px){
+  .install-nudge .nudge-actions{width:100%}
+  .install-nudge .nudge-actions .ghost{flex:1}
+}
 .plant-slot small,.theme-card small{overflow-wrap:anywhere}
 @media(max-width:390px){
   .terrace{padding:20px 14px}

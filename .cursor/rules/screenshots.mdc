@@ -1,0 +1,18 @@
+---
+description: How to refresh Nearer product screenshots after UI changes
+alwaysApply: true
+---
+
+# README screenshots
+
+After meaningful UI/copy/visual changes, refresh product screenshots instead of capturing them ad hoc in chat.
+
+1. Ensure the app is serving locally: `npm run dev` (default `http://127.0.0.1:4173`).
+2. Run: `npm run shots` (= `node scripts/capture-readme-shots.mjs`).
+3. Override URL if needed: `PWA_URL=http://127.0.0.1:4173 npm run shots`.
+4. Output:
+   - `docs/screenshots/01-…08-….png` — onboarding, today, waiting, answers, garden, history, plus, settings
+   - `docs/screenshots/new/*` — ours, lists, moments, share, pair-code, etc.
+5. Include updated PNGs in the same commit as the UI change when screenshots are part of the deliverable.
+
+Do not invent a parallel capture flow unless the existing script is broken; fix `scripts/capture-readme-shots.mjs` instead.

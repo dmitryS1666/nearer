@@ -1,6 +1,11 @@
 import { config } from './config.js';
 import { getValue, setValue } from './platform/storage.js';
 import { runtime, setupServiceWorker } from './platform/runtime.js';
+import {
+  installOfferMode,
+  readInstallDismissed,
+  writeInstallDismissed
+} from './platform/pwaInstall.js';
 import { NotificationService } from './platform/notifications.js';
 import { lightImpact } from './platform/haptics.js';
 import { shareText, openExternalUrl } from './platform/sharing.js';
@@ -205,6 +210,15 @@ function uiIcon(name) {
       <rect x="4.5" y="8" width="23" height="16.5" rx="3.5" fill="#EFE8FF"/>
       <path d="M6.2 10.2 16 16.4l9.8-6.2" fill="none" stroke="#8B6FE0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       <rect x="4.5" y="8" width="23" height="16.5" rx="3.5" fill="none" stroke="#B9A4F0" stroke-width="1.6"/>
+    </svg>`;
+  }
+  if (name === 'home') {
+    return `<svg class="ui-icon ui-icon-home" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs><linearGradient id="${gid}" x1="6" y1="6" x2="26" y2="28" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#9B7CFF"/><stop offset="1" stop-color="#6E52DF"/>
+      </linearGradient></defs>
+      <path fill="url(#${gid})" d="M16 5.2 5.5 14.2c-.4.35-.2 1 .35 1H9.2v9.3c0 .7.55 1.25 1.25 1.25h4.1v-6.2h3.1v6.2h4.1c.7 0 1.25-.55 1.25-1.25v-9.3h3.35c.55 0 .75-.65.35-1L16 5.2z"/>
+      <path fill="#EDE6FF" opacity=".7" d="M16 8.2 10.2 13.1h1.6v8.4h2.4v-5.4h3.6v5.4h2.4v-8.4h1.6L16 8.2z"/>
     </svg>`;
   }
   return '';
@@ -539,6 +553,7 @@ function todayView() {
       ${streakBubble()}
     </section>
     ${notificationNudge()}
+    ${installNudge()}
     ${syncBanner}
     ${body}
     ${renderTodayArchive(state)}
@@ -578,6 +593,55 @@ function notificationNudge() {
       </div>
     </div>
     <button class="ghost" id="enable-push-nudge" type="button">Настроить</button>
+  </section>`;
+}
+
+function currentInstallMode({ ignoreDismiss = false } = {}) {
+  return installOfferMode({
+    deferredPrompt: installPrompt,
+    dismissed: readInstallDismissed(),
+    isNative: runtime.isNative(),
+    ignoreDismiss
+  });
+}
+
+function installNudge() {
+  // Start hidden; refreshInstallOffer reveals when Chrome deferred the prompt or iOS Safari can Add to Home Screen.
+  return `<section class="notification-nudge install-nudge" id="install-nudge" hidden>
+    <div class="nudge-main">
+      <span class="nudge-icon" aria-hidden="true">${uiIcon('home')}</span>
+      <div class="nudge-copy">
+        <b id="install-nudge-title">На домашний экран</b>
+        <small id="install-nudge-text">Откроется как приложение — без строки браузера.</small>
+      </div>
+    </div>
+    <div class="nudge-actions">
+      <button class="ghost" id="install-nudge-dismiss" type="button">Позже</button>
+      <button class="ghost install-nudge-cta" id="install-nudge-cta" type="button">Установить</button>
+    </div>
+  </section>`;
+}
+
+function renderInstallSettings() {
+  const mode = currentInstallMode({ ignoreDismiss: true });
+  if (!mode) return '';
+  if (mode === 'ios') {
+    return `<section class="settings-card" id="settings-install">
+      <h2>На домашний экран</h2>
+      <p>В Safari: нажмите «Поделиться», затем «На экран „Домой“». Так Ближе откроется как обычное приложение.</p>
+      <ol class="install-steps">
+        <li>Кнопка «Поделиться» внизу Safari</li>
+        <li>«На экран „Домой“»</li>
+        <li>Подтвердите «Добавить»</li>
+      </ol>
+    </section>`;
+  }
+  return `<section class="settings-card" id="settings-install">
+    <h2>На домашний экран</h2>
+    <p>Поставьте Ближе как приложение — быстрее открывается и без строки браузера.</p>
+    <div class="button-row wrap">
+      <button class="primary" id="settings-install-btn" type="button">Установить</button>
+    </div>
   </section>`;
 }
 
@@ -679,6 +743,7 @@ function settingsView() {
     ${renderPhotoSettings(state)}
     ${renderLocalBackup()}
     ${renderPairRecovery(state)}
+    ${renderInstallSettings()}
 
     <section class="settings-card">
       <h2>О приложении</h2>
@@ -779,6 +844,7 @@ function render() {
     bindCommon();
     bindScreen();
     refreshNotificationNudge();
+    refreshInstallOffer();
     maybeHapticReveal();
   } catch (err) {
     console.error(err);
@@ -903,6 +969,7 @@ function bindToday() {
     pendingSettingsFocus = 'notifications';
     nav('settings');
   });
+  bindInstallOfferControls();
 }
 
 async function maybeHapticReveal() {
@@ -1007,6 +1074,76 @@ async function refreshNotificationNudge() {
   nudge.hidden = isReminderNudgeDismissed(status);
 }
 
+function refreshInstallOffer() {
+  const nudge = document.getElementById('install-nudge');
+  const mode = currentInstallMode();
+  if (nudge) {
+    const title = document.getElementById('install-nudge-title');
+    const text = document.getElementById('install-nudge-text');
+    const cta = document.getElementById('install-nudge-cta');
+    if (mode === 'prompt') {
+      if (title) title.textContent = 'На домашний экран';
+      if (text) text.textContent = 'Откроется как приложение — без строки браузера.';
+      if (cta) cta.textContent = 'Установить';
+      nudge.hidden = false;
+    } else if (mode === 'ios') {
+      if (title) title.textContent = 'На домашний экран';
+      if (text) text.textContent = 'В Safari: Поделиться → На экран «Домой».';
+      if (cta) cta.textContent = 'Понятно';
+      nudge.hidden = false;
+    } else {
+      nudge.hidden = true;
+    }
+  }
+}
+
+async function promptPwaInstall() {
+  if (!installPrompt) {
+    toast('Установка сейчас недоступна', 'warn');
+    return;
+  }
+  const deferred = installPrompt;
+  installPrompt = null;
+  try {
+    await deferred.prompt();
+    const choice = await deferred.userChoice;
+    await track('pwa_install_prompt', { outcome: choice?.outcome || 'unknown' });
+    if (choice?.outcome === 'accepted') {
+      writeInstallDismissed();
+    } else {
+      refreshInstallOffer();
+      if (screen === 'settings') render();
+    }
+  } catch (err) {
+    console.warn('PWA install prompt failed', err);
+    toast('Не удалось открыть установку', 'warn');
+    refreshInstallOffer();
+  }
+}
+
+function dismissInstallOffer() {
+  writeInstallDismissed();
+  refreshInstallOffer();
+  if (screen === 'settings') render();
+}
+
+function bindInstallOfferControls() {
+  document.getElementById('install-nudge-cta')?.addEventListener('click', async () => {
+    const mode = currentInstallMode();
+    if (mode === 'ios') {
+      dismissInstallOffer();
+      return;
+    }
+    await promptPwaInstall();
+  });
+  document.getElementById('install-nudge-dismiss')?.addEventListener('click', () => {
+    dismissInstallOffer();
+  });
+  document.getElementById('settings-install-btn')?.addEventListener('click', () => {
+    promptPwaInstall();
+  });
+}
+
 async function refreshDeviceLink(announce) {
   const token = state.deviceLink?.deviceToken;
   if (!token) return;
@@ -1054,6 +1191,7 @@ async function refreshDeviceLink(announce) {
 }
 
 function bindSettings() {
+  bindInstallOfferControls();
   document.getElementById('save-names')?.addEventListener('click', async () => {
     state.profile.name = document.getElementById('name-setting').value.trim() || 'Ты';
     state.profile.partnerName = document.getElementById('partner-setting').value.trim() || 'Партнёр';
@@ -1502,10 +1640,16 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
   installPrompt = event;
+  refreshInstallOffer();
+  if (screen === 'settings' && state?.onboarded) render();
 });
 window.addEventListener('appinstalled', () => {
   installPrompt = null;
+  writeInstallDismissed();
+  refreshInstallOffer();
   toast('Ближе установлено 💜');
+  track('pwa_installed');
+  if (screen === 'settings' && state?.onboarded) render();
 });
 
 channel?.addEventListener('message', (event) => {
