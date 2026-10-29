@@ -18,7 +18,6 @@ import {
   calendarDateString
 } from './domain/LocalCoupleRepository.js';
 import { DemoPartnerEngine } from './domain/DemoPartnerEngine.js';
-import { DemoEntitlementProvider } from './domain/DemoEntitlementProvider.js';
 import { userSession } from './domain/UserSession.js';
 import {
   initAnalytics,
@@ -52,6 +51,8 @@ import { renderPhotoSettings } from './components/settings/photos.js';
 import { renderDeviceLink, renderLocalBackup, renderPairRecovery } from './components/settings/link.js';
 import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
 import { generatePairIdentity } from './platform/link/pairCrypto.js';
+import { renderPlus } from './components/plus/plusView.js';
+import { createPlusIntentController, postPlusIntent } from './components/plus/plusIntent.js';
 import { renderGardenHome } from './components/garden/gardenView.js';
 import { todayPeriodMode, renderPeriodTodayBody, renderOptionalLegacyDaily } from './components/garden/todayPeriod.js';
 import { bindPeriodTodayHandlers, bindGardenHandlers } from './components/garden/bindGarden.js';
@@ -69,8 +70,23 @@ let route = {
   shareUrl: bootParams.get('url'),
   shareTitle: bootParams.get('title'),
   shareText: bootParams.get('text'),
-  periodId: bootParams.get('period')
+  periodId: bootParams.get('period'),
+  plusSource: ['settings', 'ours', 'other'].includes(bootParams.get('from')) ? bootParams.get('from') : 'other'
 };
+function readSentPlusIntent() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem('blizhe-plus-intent') || 'null');
+    if (parsed?.phase === 'sent' && typeof parsed.requestId === 'string') return parsed;
+  } catch {
+    /* session storage can be blocked */
+  }
+  return null;
+}
+const plusIntent = createPlusIntentController({
+  post: postPlusIntent,
+  online: () => navigator.onLine,
+  initial: readSentPlusIntent()
+});
 let archiveUi = freshArchiveUi();
 const metadataProvider = new ProductMetadataProvider();
 const wfolio = new WfolioPhotoProvider({ metadataProvider });
@@ -137,14 +153,6 @@ function ensureLinkPolling() {
     linkPollTimer = setInterval(() => scheduleCoupleSync({ delay: 0 }), 30_000);
   }
 }
-
-const entitlement = new DemoEntitlementProvider(
-  () => state.plus,
-  async (v) => {
-    state.plus = v;
-    await saveState();
-  }
-);
 
 const demoPartner = new DemoPartnerEngine({
   getState: () => ({ ...state, todayKey: todayKey() }),
@@ -337,6 +345,12 @@ function nav(to, extra = {}) {
     if (route.shareUrl) url.searchParams.set('url', route.shareUrl);
     if (route.shareTitle) url.searchParams.set('title', route.shareTitle);
     if (route.shareText) url.searchParams.set('text', route.shareText);
+  }
+  if (to === 'packs') {
+    if (extra.plusSource === 'settings' || extra.plusSource === 'ours' || extra.plusSource === 'other') {
+      route.plusSource = extra.plusSource;
+    }
+    url.searchParams.set('from', route.plusSource || 'other');
   }
   history.replaceState({}, '', url);
   if (to === 'garden') track('garden_viewed');
@@ -686,29 +700,7 @@ function triggerPeriodAnim(period, prevStageId, result) {
 }
 
 function packsView() {
-  const packs = [
-    ['💙', 'Глубокие разговоры', '50 вопросов', 'Спокойные вопросы о ценностях, поддержке и том, что обычно откладываем.'],
-    ['🗺️', 'Приключения и мечты', '40 вопросов', 'Куда поехать, чему научиться и что однажды попробовать вместе.'],
-    ['🔥', 'Близость', '35 вопросов', 'Более личные вопросы для пары, которая хочет говорить открытее.'],
-    ['✈️', 'На расстоянии', '30 вопросов', 'Ритуалы и разговоры для отношений на расстоянии.']
-  ];
-  return shell(
-    `
-    <section class="plus-hero">
-      <div class="eyebrow">Ближе Плюс</div><h1>Больше поводов узнавать друг друга</h1>
-      <p>Полная история · Больше тематических вопросов · Специальные темы · Развитие сада · Будущие воспоминания</p>
-      <div class="price"><b>${state.plus ? 'Плюс активен' : 'Ближе Плюс'}</b><span>${state.plus ? 'тестовый доступ' : 'в релизе — подписка'}</span></div>
-      <button class="primary large" id="plus-cta">${state.plus ? 'Плюс уже отмечен' : 'Попробовать Плюс'}</button>
-    </section>
-    <div class="pack-grid">${packs
-      .map(
-        ([icon, title, count, desc]) =>
-          `<article class="pack-card ${state.plus ? '' : 'locked'}"><span class="pack-icon">${icon}</span><div class="pack-copy"><small>${count}</small><h3>${title}</h3><p>${desc}</p></div><span class="lock">${state.plus ? '→' : '🔒'}</span></article>`
-      )
-      .join('')}</div>
-  `,
-    'packs'
-  );
+  return shell(renderPlus(plusIntent.snapshot()), 'packs');
 }
 
 function settingsView() {
@@ -745,6 +737,12 @@ function settingsView() {
     ${renderPairRecovery(state)}
     ${renderInstallSettings()}
 
+    <section class="settings-card plus-entry">
+      <h2>Ближе Plus</h2>
+      <p>Новые темы, сад и воспоминания — одна подписка на двоих. Запуск ещё готовим, оплату можно только запросить.</p>
+      <button class="plus-entry-link" type="button" data-nav="packs" data-plus-source="settings">Ближе Plus</button>
+    </section>
+
     <section class="settings-card">
       <h2>О приложении</h2>
       <p>Ответы, сад и история живут на ваших телефонах. Сервер видит только связь устройств — не тексты. Между телефонами всё шифруется.</p>
@@ -757,7 +755,6 @@ function settingsView() {
       <div class="button-row wrap">
         <button class="secondary" id="feedback-btn">Оставить отзыв о тестовой версии</button>
         <button class="secondary" id="about-privacy">Подробнее</button>
-        <button class="secondary" type="button" data-nav="packs">Ближе Плюс</button>
       </div>
     </section>
 
@@ -857,6 +854,7 @@ function bindCommon() {
     const extra = {};
     if (el.dataset.list) extra.listId = el.dataset.list;
     if (el.dataset.moment) extra.momentId = el.dataset.moment;
+    if (el.dataset.plusSource) extra.plusSource = el.dataset.plusSource;
     nav(el.dataset.nav, extra);
   }));
   document.querySelectorAll('[data-role]').forEach((el) => el.addEventListener('click', () => setRole(el.dataset.role)));
@@ -900,16 +898,36 @@ function bindScreen() {
 }
 
 function bindPlus() {
-  document.getElementById('plus-cta')?.addEventListener('click', async () => {
-    await track('plus_cta_clicked');
-    await track('paywall_cta_clicked');
-    if (state.plus) {
-      toast('Плюс уже отмечен в тестовой версии');
-      return;
-    }
-    alert('Это тестовая версия.\nВ релизе здесь будет подписка.');
-    await entitlement.setDemoPlus(true);
+  document.querySelectorAll('[data-plus-plan]').forEach((button) => {
+    button.addEventListener('click', () => {
+      plusIntent.selectPlan(button.dataset.plusPlan);
+      render();
+    });
+  });
+  document.getElementById('plus-thanks-ok')?.addEventListener('click', () => {
+    plusIntent.dismissNotice();
     render();
+  });
+  document.getElementById('plus-cta')?.addEventListener('click', async () => {
+    const started = plusIntent.startSubmit();
+    render();
+    if (started !== 'started') return;
+    const result = await plusIntent.finishSubmit(route.plusSource || 'other');
+    if (result.phase === 'sent') {
+      try {
+        sessionStorage.setItem('blizhe-plus-intent', JSON.stringify({
+          phase: 'sent',
+          plan: result.plan,
+          requestId: result.requestId
+        }));
+      } catch {
+        /* the server already dedupes this request id */
+      }
+    }
+    if (screen === 'packs') {
+      render();
+      document.getElementById('plus-thanks')?.scrollIntoView({ block: 'center' });
+    }
   });
 }
 

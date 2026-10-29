@@ -34,6 +34,12 @@ export function renderOurs(ctx) {
         <small>Своё название и настроение</small>
       </button>
     </div>
+    <button class="plus-quiet" type="button" data-nav="packs" data-plus-source="ours">
+      <span>
+        <b>Ближе Plus</b>
+        <small>Одна подписка на двоих. Пока только собираем интерес.</small>
+      </span>
+    </button>
     ${sheet}`;
 }
 

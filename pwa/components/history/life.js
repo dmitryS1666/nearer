@@ -28,7 +28,7 @@ export function renderLife(ctx) {
     ${query.trim() ? '' : `${yearCard(review, years)}${datesBlock(ctx)}${renderGroups(ctx, groups)}`}
     ${
       !ctx.state.plus && (ctx.state.history || []).length >= 2
-        ? `<section class="soft-paywall"><div><b>Полная история — в «Ближе Плюс»</b><p>Больше тем, развитие сада и будущие воспоминания.</p></div><button class="ghost" data-nav="packs">Смотреть Плюс</button></section>`
+        ? `<section class="soft-paywall"><div><b>Полная история — в «Ближе Плюс»</b><p>Больше тем, развитие сада и будущие воспоминания.</p></div><button class="ghost" data-nav="packs" data-plus-source="other">Смотреть Плюс</button></section>`
         : ''
     }
     ${ctx.ui.sheet === 'date' ? dateSheet() : ''}`;
