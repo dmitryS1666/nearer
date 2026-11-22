@@ -299,7 +299,7 @@ if (await page.locator('[data-nav="packs"]').count()) {
 } else {
   await page.goto(`${BASE}/?screen=packs`, { waitUntil: 'networkidle' });
 }
-await page.waitForSelector('text=Ближе Плюс', { timeout: 10000 });
+await page.waitForSelector('text=Ближе Plus', { timeout: 10000 });
 await shot(OUT, '07-plus');
 
 await nav('settings');

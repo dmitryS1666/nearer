@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  ANDROID_APK_URL,
   INSTALL_DISMISS_KEY,
+  distributionChoices,
   installOfferMode,
   isIosDevice,
   isIosSafari,
@@ -12,6 +14,15 @@ import {
 } from '../platform/pwaInstall.js';
 
 describe('pwaInstall', () => {
+  it('offers the site and the Android APK, and hides both inside the native app', () => {
+    const choices = distributionChoices();
+    assert.deepEqual(choices.map((choice) => choice.id), ['pwa', 'apk']);
+    assert.equal(choices[0].href, '#start-form');
+    assert.equal(choices[1].href, ANDROID_APK_URL);
+    assert.equal(ANDROID_APK_URL.endsWith('/blizhe-0.1.0-hypothesis.apk'), true);
+    assert.deepEqual(distributionChoices({ native: true }), []);
+  });
+
   it('detects standalone display modes', () => {
     const win = {
       matchMedia: (q) => ({ matches: q.includes('standalone') }),

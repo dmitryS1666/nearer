@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { getValue, setValue } from './platform/storage.js';
 import { runtime, setupServiceWorker } from './platform/runtime.js';
 import {
+  distributionChoices,
   installOfferMode,
   readInstallDismissed,
   writeInstallDismissed
@@ -443,6 +444,7 @@ function renderOnboarding() {
       <div class="feature-row"><span>🔒</span><div><b>Только ваши</b><small>Ответы живут на ваших телефонах.</small></div></div>
       <div class="feature-row"><span>💬</span><div><b>Без ленты</b><small>Один разговор в день — и можно жить дальше.</small></div></div>
       <div class="feature-row"><span>🌱</span><div><b>Общий сад</b><small>Когда отвечаете вдвоём, растение растёт.</small></div></div>
+      ${distributionChoiceHtml()}
       <form id="start-form" class="onboarding-form">
         <label>Как тебя зовут?<input name="name" maxlength="24" value="" placeholder="Твоё имя" required></label>
         <label>А партнёра?<input name="partnerName" maxlength="24" value="" placeholder="Имя партнёра" required></label>
@@ -636,26 +638,45 @@ function installNudge() {
   </section>`;
 }
 
+function distributionChoiceHtml({ pwaHref = '#start-form' } = {}) {
+  const choices = distributionChoices({ native: runtime.isNative(), pwaHref });
+  if (!choices.length) return '';
+  return `<div class="dist-choice">${choices
+    .map(
+      (choice) => `<a class="dist-choice-card" href="${escapeHtml(choice.href)}"${
+        choice.id === 'apk' ? ' rel="noopener"' : ''
+      }><b>${escapeHtml(choice.label)}</b><small>${escapeHtml(choice.detail)}</small></a>`
+    )
+    .join('')}</div>`;
+}
+
 function renderInstallSettings() {
+  const downloads = distributionChoiceHtml({ pwaHref: '#settings-install' });
   const mode = currentInstallMode({ ignoreDismiss: true });
-  if (!mode) return '';
+  if (!mode) {
+    return downloads
+      ? `<section class="settings-card" id="settings-install"><h2>Как открыть</h2><p>Сайт уже открыт. Для телефона Android есть отдельный файл.</p>${downloads}</section>`
+      : '';
+  }
   if (mode === 'ios') {
     return `<section class="settings-card" id="settings-install">
-      <h2>На домашний экран</h2>
+      <h2>Как открыть</h2>
       <p>В Safari: нажмите «Поделиться», затем «На экран „Домой“». Так Ближе откроется как обычное приложение.</p>
       <ol class="install-steps">
         <li>Кнопка «Поделиться» внизу Safari</li>
         <li>«На экран „Домой“»</li>
         <li>Подтвердите «Добавить»</li>
       </ol>
+      ${downloads}
     </section>`;
   }
   return `<section class="settings-card" id="settings-install">
-    <h2>На домашний экран</h2>
-    <p>Поставьте Ближе как приложение — быстрее открывается и без строки браузера.</p>
+    <h2>Как открыть</h2>
+    <p>Поставьте сайт на экран или скачайте файл для Android.</p>
     <div class="button-row wrap">
-      <button class="primary" id="settings-install-btn" type="button">Установить</button>
+      <button class="primary" id="settings-install-btn" type="button">На экран</button>
     </div>
+    ${downloads}
   </section>`;
 }
 
