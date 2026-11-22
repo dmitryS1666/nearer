@@ -34,6 +34,8 @@ Garden v2, archive ownership, and the encrypted sync protocol are unchanged. Thi
 
 `npm run android:build:release` fails on the default Node 20.16.0 because Capacitor CLI 8.5.2 requires Node >= 22. Vite also warns that 20.16 is below 20.19. The release build used Node 22.23.3. `BUILD SUCCESSFUL in 1m 4s`.
 
+The APK downloaded from the release is 3435940 bytes and hashes to the same SHA-256.
+
 ## Results
 
 | Check | Result | Evidence |
@@ -48,7 +50,7 @@ Garden v2, archive ownership, and the encrypted sync protocol are unchanged. Thi
 | Published CORS preflight `OPTIONS /api/pairs` from `Origin: https://localhost` | PASS (no CORS added) | `404 {"error":"not_found"}`. No allow-origin header. Same-origin PWA does not need it. Native HTTP does not use this preflight. |
 | Published Plus, no Origin, invalid plan | PASS | `400 {"error":"invalid_plan"}`. The intent gate let the body through. Not a 403. |
 | Published Plus, `sec-fetch-site: cross-site` | PASS | `403 {"error":"forbidden"}` |
-| Published Plus, `Origin: https://localhost`, invalid plan | FAIL on current production | `403 {"error":"forbidden"}` before this server change is deployed. The APK adapter does not send `Origin`. After deploy, this shape is allowed only with `x-blizhe-intent: 1` and without `cross-site`. |
+| Published Plus, `Origin: https://localhost`, invalid plan | PASS after deploy | Before this commit was deployed, the same request was `403`. Deploy run [45054189217](https://github.com/dmitryS1666/nearer/actions/runs/45054189217) on `21a6e2c` succeeded. A later probe returned `400 {"error":"invalid_plan"}` for `https://localhost` and `capacitor://localhost`. `sec-fetch-site: cross-site`, `https://localhost.evil.example`, and a missing intent header stayed `403`. The APK adapter still does not send `Origin`. |
 | Published Plus, valid body, no Origin | BLOCKED | `503 {"error":"email_not_configured"}`. Request id `ee85c4a8-2d56-43b5-b2a3-ffe97051af22`. The handler ran. SMTP is not configured, so this is not a pass. No letter was sent. Plus is still a non-billing interest request. |
 | Published `POST /api/link-preview` for `https://example.com` | PASS | `200`, title `example.com` |
 | Published two-client pair + encrypted sync | PASS | Not two phones. Node clients against `https://nearer.other.dev-regiuslab.by`: create `201`, join `200`, both `linked` on the same pair, PUT sync `200` revision 1, the other device decrypted `{marker:"pilot-sync"}`, ciphertext did not contain that marker, stale PUT `409 conflict` and `ok: false`, retry `200` revision 2. First `DELETE` returned `200` and removed the pair; the second token then got `401`. |
@@ -65,7 +67,7 @@ Garden v2, archive ownership, and the encrypted sync protocol are unchanged. Thi
 ## Limitations that remain
 
 - Live SMTP is not configured. Plus returns `503 email_not_configured` and does not send mail. Do not treat that as a successful purchase. There is still no billing.
-- Production will keep rejecting `Origin: https://localhost` until this server change is deployed. The shipped adapter does not send `Origin` or `Sec-Fetch-Site`, which production already accepts.
+- Production now accepts `https://localhost`, `http://localhost`, and `capacitor://localhost` on Plus when `x-blizhe-intent: 1` is present and `sec-fetch-site` is not `cross-site`. That was checked live after Deploy run 45054189217. The shipped adapter still does not send `Origin` or `Sec-Fetch-Site`.
 - Server CORS was not widened. A WebView `fetch` from `https://localhost` to the API will fail the browser preflight. That is intentional.
 - Capacitor's fetch patch is enabled, but app `/api` calls do not rely on the GET interceptor. This was read from Capacitor 8.5.2 `native-bridge.js` and `HttpRequestHandler.java`, and covered by unit tests of the adapter. It was not traced in logcat on a device.
 - Sync blobs can be up to the existing ~768 KB server limit. The native bridge is a worse place for a payload that large than browser `fetch`. That limit was not changed.
