@@ -1,4 +1,6 @@
 import { getValue, setValue } from '../storage.js';
+import { apiEndpoint } from '../apiEndpoint.js';
+import { platformFetch } from '../nativeHttp.js';
 
 export const LINK_PREVIEW_TTL_MS = 12 * 60 * 60 * 1000;
 const CACHE_KEY = 'link_preview_cache';
@@ -25,7 +27,7 @@ const idbCache = {
 export class ProductMetadataProvider {
   constructor({ endpoint = '/api/link-preview', fetchImpl, cache } = {}) {
     this.endpoint = endpoint;
-    this.fetchImpl = fetchImpl || ((...args) => globalThis.fetch(...args));
+    this.fetchImpl = fetchImpl || platformFetch;
     this.cache = cache || idbCache;
   }
 
@@ -39,7 +41,10 @@ export class ProductMetadataProvider {
     }
     let response;
     try {
-      response = await this.fetchImpl(this.endpoint, {
+      const endpoint = typeof this.endpoint === 'string' && this.endpoint.startsWith('/api/')
+        ? apiEndpoint(this.endpoint)
+        : this.endpoint;
+      response = await this.fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ url: key, force })

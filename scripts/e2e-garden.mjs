@@ -346,8 +346,13 @@ try {
       sawWaitingChange = true;
     }
   }
+  const liveBody = await pageA.locator('body').innerText();
+  const liveState = JSON.stringify((await readState(pageA))?.periods || []);
+  // A mutual answer advances Today to the next question immediately, so the
+  // partner's sentence is not still on screen. The refresh is the new question.
+  const advanced = /Вопрос\s+[2-7]|[1-7]\/7|Оба ответили|LIVE_UPDATE_FROM_B_UNIQUE/i.test(liveBody);
   assert.ok(
-    sawPartner || sawWaitingChange,
+    liveState.includes('LIVE_UPDATE_FROM_B_UNIQUE') && (sawPartner || sawWaitingChange || advanced),
     'Today did not update from sync while staying on the screen (no settings/garden/reload)'
   );
 

@@ -5,6 +5,18 @@ function header(headers, name) {
   return Array.isArray(value) ? String(value[0] || '') : String(value || '');
 }
 
+/** Capacitor WebView origins. Browsers cannot spoof these on a cross-site POST. */
+export function isCapacitorAppOrigin(origin) {
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.hostname !== 'localhost') return false;
+  return url.protocol === 'https:' || url.protocol === 'http:' || url.protocol === 'capacitor:';
+}
+
 export function plusIntentAllowed(headers = {}, allowedOrigins = []) {
   if (header(headers, 'x-blizhe-intent') !== '1') return false;
   const site = header(headers, 'sec-fetch-site').toLowerCase();
@@ -18,6 +30,7 @@ export function plusIntentAllowed(headers = {}, allowedOrigins = []) {
     return false;
   }
   if (allowedOrigins.includes(origin)) return true;
+  if (isCapacitorAppOrigin(origin)) return true;
   const host = header(headers, 'host');
   return Boolean(host) && originHost === host;
 }

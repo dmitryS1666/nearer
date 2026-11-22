@@ -1,10 +1,13 @@
+import { apiEndpoint } from '../apiEndpoint.js';
+import { platformFetch } from '../nativeHttp.js';
+
 async function pairRequest(path, { method = 'GET', token = '', body } = {}) {
   const headers = { accept: 'application/json' };
   if (token) headers.authorization = `Bearer ${token}`;
   if (body !== undefined) headers['content-type'] = 'application/json';
   let response;
   try {
-    response = await fetch(path, {
+    response = await platformFetch(apiEndpoint(path), {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -27,27 +30,27 @@ async function pairRequest(path, { method = 'GET', token = '', body } = {}) {
 }
 
 export function createPair(publicKey) {
-  return pairRequest('api/pairs', { method: 'POST', body: { publicKey } });
+  return pairRequest('/api/pairs', { method: 'POST', body: { publicKey } });
 }
 
 export function joinPair(code, publicKey) {
-  return pairRequest('api/pairs/join', { method: 'POST', body: { code, publicKey } });
+  return pairRequest('/api/pairs/join', { method: 'POST', body: { code, publicKey } });
 }
 
 export function fetchPairStatus(token) {
-  return pairRequest('api/pairs/me', { token });
+  return pairRequest('/api/pairs/me', { token });
 }
 
 export function leavePair(token) {
-  return pairRequest('api/pairs/me', { method: 'DELETE', token });
+  return pairRequest('/api/pairs/me', { method: 'DELETE', token });
 }
 
 export function fetchPairSync(token) {
-  return pairRequest('api/pairs/sync', { token });
+  return pairRequest('/api/pairs/sync', { token });
 }
 
 export function putPairSync(token, body) {
-  return pairRequest('api/pairs/sync', { method: 'PUT', token, body });
+  return pairRequest('/api/pairs/sync', { method: 'PUT', token, body });
 }
 
 export function pairErrorCopy(error) {

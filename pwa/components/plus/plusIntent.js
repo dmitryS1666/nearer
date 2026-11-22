@@ -1,4 +1,6 @@
 import { PLUS_COPY } from './plusCopy.js';
+import { apiEndpoint } from '../../platform/apiEndpoint.js';
+import { platformFetch } from '../../platform/nativeHttp.js';
 
 export function plusIntentPayload(input) {
   return {
@@ -8,7 +10,7 @@ export function plusIntentPayload(input) {
   };
 }
 
-export async function postPlusIntent(input, { fetchImpl = fetch, online = () => navigator.onLine } = {}) {
+export async function postPlusIntent(input, { fetchImpl = platformFetch, online = () => navigator.onLine } = {}) {
   if (online() === false) {
     const error = new Error('offline');
     error.code = 'offline';
@@ -16,7 +18,7 @@ export async function postPlusIntent(input, { fetchImpl = fetch, online = () => 
   }
   let response;
   try {
-    response = await fetchImpl('/api/plus/intent', {
+    response = await fetchImpl(apiEndpoint('/api/plus/intent'), {
       method: 'POST',
       headers: {
         accept: 'application/json',

@@ -1,4 +1,6 @@
 import { config } from './config.js';
+import { apiEndpoint } from './platform/apiEndpoint.js';
+import { platformFetch } from './platform/nativeHttp.js';
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -38,7 +40,9 @@ export async function subscribeBackgroundPush() {
   }
 
   if (config.push.subscriptionEndpoint) {
-    const response = await fetch(config.push.subscriptionEndpoint, {
+    const endpoint = config.push.subscriptionEndpoint;
+    const url = typeof endpoint === 'string' && endpoint.startsWith('/api/') ? apiEndpoint(endpoint) : endpoint;
+    const response = await platformFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)

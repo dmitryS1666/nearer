@@ -25,6 +25,9 @@ const config: CapacitorConfig = {
     preferredContentMode: 'mobile'
   },
   plugins: {
+    // Enables the native HTTP plugin. App /api calls use an explicit CapacitorHttp
+    // adapter (see pwa/platform/nativeHttp.js) so GET error statuses stay intact.
+    CapacitorHttp: { enabled: true },
     SplashScreen: {
       launchShowDuration: 0,
       launchAutoHide: true,

@@ -324,6 +324,55 @@ describe('plus intent endpoint', () => {
     assert.equal(createPlusMailer({ env: { PLUS_MAIL_MODE: 'test', NODE_ENV: 'production' } }).configured, false);
   });
 
+  it('accepts a Capacitor origin only when the intent header is present and the call is not cross-site', async () => {
+    const { service, sent } = harness();
+    const noBrowserHeaders = await service.handle(request(validBody({ requestId: ID_2 }), {
+      headers: { host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.40'
+    }));
+    assert.equal(noBrowserHeaders.status, 200);
+    assert.equal(noBrowserHeaders.json.ok, true);
+    assert.equal(noBrowserHeaders.json.error, undefined);
+    assert.equal(sent.length, 1);
+
+    const android = await service.handle(request(validBody({ requestId: ID_3 }), {
+      headers: { origin: 'https://localhost', host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.41'
+    }));
+    assert.equal(android.status, 200);
+    assert.equal(android.json.ok, true);
+    assert.equal(sent.length, 2);
+
+    const ios = await service.handle(request(validBody({ requestId: '44444444-4444-4444-8444-444444444444' }), {
+      headers: { origin: 'capacitor://localhost', host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.42'
+    }));
+    assert.equal(ios.status, 200);
+    assert.equal(sent.length, 3);
+
+    const crossSite = await service.handle(request(validBody({ requestId: '55555555-5555-4555-8555-555555555555' }), {
+      headers: { origin: 'https://localhost', 'sec-fetch-site': 'cross-site', host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.43'
+    }));
+    assert.equal(crossSite.status, 403);
+    assert.equal(crossSite.json.error, 'forbidden');
+    assert.equal(sent.length, 3);
+
+    const spoofed = await service.handle(request(validBody({ requestId: '66666666-6666-4666-8666-666666666666' }), {
+      headers: { origin: 'https://localhost.evil.example', host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.44'
+    }));
+    assert.equal(spoofed.status, 403);
+    assert.equal(sent.length, 3);
+
+    const missingHeader = await service.handle(request(validBody({ requestId: '77777777-7777-4777-8777-777777777777' }), {
+      headers: { 'x-blizhe-intent': '', origin: 'https://localhost', host: 'nearer.other.dev-regiuslab.by' },
+      ip: '203.0.113.45'
+    }));
+    assert.equal(missingHeader.status, 403);
+    assert.equal(sent.length, 3);
+  });
+
   it('builds a message that cannot carry couple content', () => {
     const message = buildPlusIntentMessage({
       plan: 'month',
