@@ -17,7 +17,9 @@ describe('pwaInstall', () => {
   it('offers the site and the Android APK, and hides both inside the native app', () => {
     const choices = distributionChoices();
     assert.deepEqual(choices.map((choice) => choice.id), ['pwa', 'apk']);
+    assert.equal(choices[0].label, 'Открыть в браузере');
     assert.equal(choices[0].href, '#start-form');
+    assert.equal(choices[1].label, 'Скачать Android');
     assert.equal(choices[1].href, ANDROID_APK_URL);
     assert.equal(ANDROID_APK_URL.endsWith('/blizhe-0.1.0-hypothesis.apk'), true);
     assert.deepEqual(distributionChoices({ native: true }), []);

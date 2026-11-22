@@ -7,13 +7,13 @@ export const ANDROID_APK_URL =
 
 /**
  * Public ways to open Ближе. Hidden inside the native app.
- * @returns {{ id: 'pwa' | 'apk', label: string, detail: string, href: string }[]}
+ * @returns {{ id: 'pwa' | 'apk', label: string, href: string }[]}
  */
 export function distributionChoices({ native = false, pwaHref = '#start-form' } = {}) {
   if (native) return [];
   return [
-    { id: 'pwa', label: 'В браузере', detail: 'Этот сайт, можно на экран', href: pwaHref },
-    { id: 'apk', label: 'Android', detail: 'Скачать APK', href: ANDROID_APK_URL }
+    { id: 'pwa', label: 'Открыть в браузере', href: pwaHref },
+    { id: 'apk', label: 'Скачать Android', href: ANDROID_APK_URL }
   ];
 }
 

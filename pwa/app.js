@@ -641,21 +641,21 @@ function installNudge() {
 function distributionChoiceHtml({ pwaHref = '#start-form' } = {}) {
   const choices = distributionChoices({ native: runtime.isNative(), pwaHref });
   if (!choices.length) return '';
-  return `<div class="dist-choice">${choices
-    .map(
-      (choice) => `<a class="dist-choice-card" href="${escapeHtml(choice.href)}"${
-        choice.id === 'apk' ? ' rel="noopener"' : ''
-      }><b>${escapeHtml(choice.label)}</b><small>${escapeHtml(choice.detail)}</small></a>`
-    )
+  return `<div class="dist-choice" aria-label="Как открыть">${choices
+    .map((choice) => {
+      const tone = choice.id === 'pwa' ? 'primary' : 'secondary';
+      const external = choice.id === 'apk' ? ' rel="noopener"' : '';
+      return `<a class="${tone} large full" href="${escapeHtml(choice.href)}"${external}>${escapeHtml(choice.label)}</a>`;
+    })
     .join('')}</div>`;
 }
 
 function renderInstallSettings() {
-  const downloads = distributionChoiceHtml({ pwaHref: '#settings-install' });
+  const downloads = distributionChoiceHtml({ pwaHref: './?screen=today' });
   const mode = currentInstallMode({ ignoreDismiss: true });
   if (!mode) {
     return downloads
-      ? `<section class="settings-card" id="settings-install"><h2>Как открыть</h2><p>Сайт уже открыт. Для телефона Android есть отдельный файл.</p>${downloads}</section>`
+      ? `<section class="settings-card" id="settings-install"><h2>Как открыть</h2><p>Сайт или файл для Android.</p>${downloads}</section>`
       : '';
   }
   if (mode === 'ios') {
