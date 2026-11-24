@@ -13,7 +13,7 @@ import {
 import { isFlatDayMap, nestAnswersMap, nestReactionsMap } from './garden/dayMaps.js';
 
 /** Local IndexedDB schema. Bump when persisted shape changes. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 function ensureStatusMeta(period) {
   if (!period) return;
@@ -37,6 +37,15 @@ export function migrateState(state, { now = new Date().toISOString(), idFactory 
   state.photoStorage = normalizePhotoStorage(state.photoStorage);
   state.deviceLink = normalizeDeviceLink(state.deviceLink);
   state.circleStats = state.circleStats && typeof state.circleStats === 'object' ? state.circleStats : {};
+  state.profile ||= { name: 'Ты', partnerName: 'Партнёр' };
+  if (typeof state.profile.namesLocked !== 'boolean') state.profile.namesLocked = false;
+  if (state.analyticsConsent !== 'granted' && state.analyticsConsent !== 'denied') {
+    state.analyticsConsent = 'unknown';
+  }
+  state.notificationPrefs ||= {};
+  if (typeof state.notificationPrefs.announcements !== 'boolean') {
+    state.notificationPrefs.announcements = false;
+  }
 
   if (!state.circleId) state.circleId = idFactory();
 

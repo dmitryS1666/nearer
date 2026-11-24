@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../ui/escapeHtml.js';
+import { answerColumns, participantNames } from '../../domain/identity.js';
 import { GARDEN_THEMES } from '../../domain/garden/themes.js';
 import { derivePeriodProgress, nextQuestionScheduleInfo, periodDayNumber } from '../../domain/garden/progress.js';
 import {
@@ -10,6 +11,22 @@ import {
 import { gardenFromCompletedDays } from '../../domain/LocalCoupleRepository.js';
 import { renderPlantSvg } from '../../domain/garden/plantSvg.js';
 import { periodConclusions } from '../../domain/garden/progress.js';
+
+function namedAnswerCards(state, slot, empty = '—') {
+  const cols = answerColumns(state, slot);
+  return `
+    <div class="answer-card violet"><span>Вы · ${escapeHtml(cols.mineName)}</span><p>${escapeHtml(cols.mineText || empty)}</p></div>
+    <div class="answer-card rose"><span>${escapeHtml(cols.partnerName)}</span><p>${escapeHtml(cols.partnerText || empty)}</p></div>`;
+}
+
+function challengeLabels(state, period) {
+  const who = participantNames(state);
+  const mineDone = period.challenge?.[who.role]?.done;
+  const partnerDone = period.challenge?.[who.partnerRole]?.done;
+  return `
+    <span>${escapeHtml(who.mine)}: <b>${mineDone ? 'сделано' : 'пока нет'}</b></span>
+    <span>${escapeHtml(who.partner)}: <b>${partnerDone ? 'сделано' : 'пока нет'}</b></span>`;
+}
 
 function formatDate(isoOrDay) {
   if (!isoOrDay) return '—';
@@ -223,8 +240,7 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
             <div class="pill">${q.kind === 'final' ? 'Финал' : `Вопрос ${q.order}`}</div>
             <h4>${escapeHtml(q.text)}</h4>
             <div class="answers-grid">
-              <div class="answer-card violet"><span>${escapeHtml(state.profile.name)}</span><p>${escapeHtml(slot.a?.text || '—')}</p></div>
-              <div class="answer-card rose"><span>${escapeHtml(state.profile.partnerName)}</span><p>${escapeHtml(slot.b?.text || '—')}</p></div>
+              ${namedAnswerCards(state, slot)}
             </div>
           </article>`;
         })
@@ -234,8 +250,7 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
       <h2>Ваши выводы</h2>
       <p class="microcopy">Каждый пишет своё — чужой текст не затирается.</p>
       <div class="answers-grid">
-        <div class="answer-card violet"><span>${escapeHtml(state.profile.name)}</span><p>${escapeHtml(conclusions.a?.text || 'Ещё нет')}</p></div>
-        <div class="answer-card rose"><span>${escapeHtml(state.profile.partnerName)}</span><p>${escapeHtml(conclusions.b?.text || 'Ещё нет')}</p></div>
+        ${namedAnswerCards(state, conclusions, 'Ещё нет')}
       </div>
     </section>
     <section class="settings-card">
@@ -243,11 +258,10 @@ export function renderFlowerHistory(state, period, { gardenAnim = null } = {}) {
       <p>${escapeHtml(period.contentSnapshot.challenge?.text || '')}</p>
       <p class="microcopy">По желанию · на рост растения не влияет</p>
       <div class="milestones">
-        <span>${escapeHtml(state.profile.name)}: <b>${period.challenge?.a?.done ? 'сделано' : 'пока нет'}</b></span>
-        <span>${escapeHtml(state.profile.partnerName)}: <b>${period.challenge?.b?.done ? 'сделано' : 'пока нет'}</b></span>
+        ${challengeLabels(state, period)}
       </div>
       <button class="secondary" data-toggle-challenge="${escapeHtml(period.id)}" style="margin-top:12px">${
-        period.challenge?.[state.currentRole]?.done ? 'Снять отметку' : 'Отметить челлендж'
+        period.challenge?.[participantNames(state).role]?.done ? 'Снять отметку' : 'Отметить челлендж'
       }</button>
     </section>
   `;

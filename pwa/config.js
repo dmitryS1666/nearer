@@ -3,8 +3,8 @@
 export const config = {
   appName: 'Ближе',
   appId: 'app.blizhe.couple',
-  versionName: '0.1.0',
-  versionCode: 1,
+  versionName: '0.2.0',
+  versionCode: 2,
   buildLabel: 'Hypothesis Build',
   // Feedback destination. Prefer email; optional form URL overrides mailto.
   TEST_FEEDBACK_EMAIL: 'dsuschinsky@gmail.com',

@@ -1,5 +1,18 @@
 import { config } from './config.js';
 import { getValue, setValue } from './platform/storage.js';
+import {
+  ANSWER_FIELD_IDS,
+  backgroundRenderWouldDismissKeyboard,
+  createDraftController,
+  draftKey,
+  legacyDailyDraftKey
+} from './domain/drafts.js';
+import {
+  answerColumns,
+  myDisplayName,
+  reconcileDeviceRole,
+  swapDisplayNames
+} from './domain/identity.js';
 import { runtime, setupServiceWorker } from './platform/runtime.js';
 import {
   distributionChoices,
@@ -131,13 +144,13 @@ async function syncCoupleNow({ announce = false } = {}) {
     });
     if (result?.state) state = result.state;
     if (announce) toast('Синхронизировано');
-    // Garden/today must refresh after sync (mutual answers / completion) without leaving the screen.
-    if (screen === 'settings' || screen === 'today' || screen === 'garden') render();
+    // Partner data can change while the answer field stays mounted.
+    if (screen === 'settings' || screen === 'today' || screen === 'garden') render({ source: 'background' });
   } catch (error) {
     state.deviceLink = { ...state.deviceLink, syncError: error.code || 'sync_failed' };
     await coupleRepository.saveState(state);
     if (announce) toast(pairErrorCopy(error), 'warn');
-    if (screen === 'settings' || screen === 'today' || screen === 'garden') render();
+    if (screen === 'settings' || screen === 'today' || screen === 'garden') render({ source: 'background' });
   } finally {
     syncInFlight = false;
   }
@@ -170,11 +183,13 @@ const demoPartner = new DemoPartnerEngine({
         tag: 'reveal'
       });
     }
-    render();
+    render({ source: 'background' });
   }
 });
 
-const roleLabel = () => (state.currentRole === 'a' ? state.profile.name : state.profile.partnerName);
+const roleLabel = () => myDisplayName(state);
+const drafts = createDraftController({ getValue, setValue });
+let renderDeferred = false;
 const partnerRole = () => (state.currentRole === 'a' ? 'b' : 'a');
 const todayKey = () => coupleRepository.todayKey(state);
 const todayQuestion = () => decorateQuestion(coupleRepository.getTodayQuestion(state));
@@ -300,10 +315,9 @@ async function saveState(broadcast = true) {
 async function loadState() {
   state = await coupleRepository.loadState();
   coupleRepository.ensureTodayQuestion(state);
-  if (state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b') {
-    // Linked pair identity wins over demo role switcher memory.
-    state.currentRole = state.deviceLink.role;
-    sessionStorage.setItem('blizhe-role', state.currentRole);
+  const reconciled = reconcileDeviceRole(state);
+  if (reconciled.role && (state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b')) {
+    sessionStorage.setItem('blizhe-role', reconciled.role);
   } else {
     const role = sessionStorage.getItem('blizhe-role');
     if (role === 'a' || role === 'b') state.currentRole = role;
@@ -311,12 +325,17 @@ async function loadState() {
 }
 
 function setRole(role) {
+  if (state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b') {
+    toast('На связанном телефоне ваши ответы уже привязаны к вам');
+    return;
+  }
   state.currentRole = role;
   sessionStorage.setItem('blizhe-role', role);
   render();
 }
 
 function nav(to, extra = {}) {
+  flushOpenDrafts();
   screen = to;
   archiveUi.sheet = null;
   if (to === 'list') route.listId = extra.listId || null;
@@ -508,8 +527,7 @@ function legacyDailyBody() {
     <section class="reveal-section ${revealAnimatedForKey === key ? '' : 'reveal-enter'}">
       <div class="reveal-heading"><div class="confetti">✦</div><div><div class="eyebrow">Оба ответили</div><h2>${escapeHtml(q.text)}</h2></div></div>
       <div class="answers-grid">
-        ${answerCard(state.profile.name, answers.a?.text, 'violet')}
-        ${answerCard(state.profile.partnerName, answers.b?.text, 'rose')}
+        ${mineAndPartnerCards(answers)}
       </div>
       <div class="reaction-row">
         <span class="reaction-label">Реакция:</span>
@@ -557,11 +575,7 @@ function todayView() {
     body = renderPeriodTodayBody(state, periodCtx) + renderOptionalLegacyDaily(state, legacyDailyBody());
   }
 
-  const syncBanner = state.deviceLink?.syncError
-    ? `<div class="sync-banner warn" role="status">${escapeHtml(pairErrorCopy({ code: state.deviceLink.syncError }))}</div>`
-    : !navigator.onLine
-      ? `<div class="sync-banner" role="status">Сейчас без сети — ответы уже на телефоне и уйдут, как только появится связь.</div>`
-      : '';
+  const syncBanner = syncBannerHtml();
 
   return shell(`
     <section class="dashboard-head">
@@ -580,6 +594,38 @@ function todayGreeting() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
   return `${hello} ❤️`;
+}
+
+function syncBannerHtml() {
+  if (state.deviceLink?.syncError) {
+    return `<div id="sync-status" class="sync-banner warn" role="status">${escapeHtml(pairErrorCopy({ code: state.deviceLink.syncError }))}</div>`;
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return `<div id="sync-status" class="sync-banner" role="status">Сейчас без сети — ответы уже на телефоне и уйдут, как только появится связь.</div>`;
+  }
+  return '';
+}
+
+function paintSyncBanner() {
+  const next = syncBannerHtml();
+  const current = document.getElementById('sync-status');
+  if (!next) {
+    current?.remove();
+    return;
+  }
+  if (current) {
+    current.outerHTML = next;
+    return;
+  }
+  document.querySelector('.dashboard-head')?.insertAdjacentHTML('afterend', next);
+}
+
+function mineAndPartnerCards(slot) {
+  const cols = answerColumns(state, slot);
+  return [
+    answerCard(`Вы · ${cols.mineName}`, cols.mineText || '—', 'violet'),
+    answerCard(cols.partnerName, cols.partnerText || '—', 'rose')
+  ].join('');
 }
 
 function answerCard(name, text, tone) {
@@ -734,7 +780,12 @@ function settingsView() {
       <h2>Пара</h2>
       <label class="setting-field">Твоё имя<input id="name-setting" value="${escapeHtml(state.profile.name)}" maxlength="24"></label>
       <label class="setting-field">Имя партнёра<input id="partner-setting" value="${escapeHtml(state.profile.partnerName)}" maxlength="24"></label>
-      <button class="secondary" id="save-names">Сохранить</button>
+      <p class="microcopy">«Твоё имя» стоит рядом с вашими ответами. A и B — два места в паре, не пол. Старые ответы сами между ними не переносятся.</p>
+      <p class="microcopy">Этот телефон пишет ответы как участник ${state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b' ? state.deviceLink.role.toUpperCase() : 'ещё не в паре'}.</p>
+      <div class="button-row wrap">
+        <button class="secondary" id="save-names" type="button">Сохранить</button>
+        <button class="secondary" id="swap-display-names" type="button">Поменять подписи местами</button>
+      </div>
     </section>
 
     ${renderDeviceLink(state)}
@@ -842,7 +893,14 @@ function prefToggle(key, title, subtitle) {
   return `<label class="toggle-row"><span><b>${title}</b><small>${subtitle}</small></span><input type="checkbox" data-pref="${key}" ${state.notificationPrefs[key] ? 'checked' : ''}><i></i></label>`;
 }
 
-function render() {
+function render(options = {}) {
+  const source = options?.source === 'background' ? 'background' : 'user';
+  if (source === 'background' && backgroundRenderWouldDismissKeyboard(document.activeElement?.id)) {
+    renderDeferred = true;
+    paintSyncBanner();
+    return;
+  }
+  renderDeferred = false;
   try {
     if (!state.onboarded) return renderOnboarding();
     const ctx = makeCtx();
@@ -960,23 +1018,23 @@ function bindToday() {
     track,
     toast,
     render,
-    triggerPeriodAnim
+    triggerPeriodAnim,
+    bindDraft: bindDraftField,
+    clearDraft
   });
   const textarea = document.getElementById('answer-text');
-  const draftKey = `draft-${currentCircleId(state) || 'solo'}-${state.currentRole}-${todayKey()}`;
+  const draftId = draftKey({
+    circleId: currentCircleId(state),
+    role: state.currentRole,
+    periodId: 'daily',
+    questionId: state.questionId || todayKey()
+  });
   if (textarea) {
     track('answer_started', { questionId: state.questionId });
-    getValue(draftKey, '').then((draft) => {
-      textarea.value = draft || '';
-      updateCount();
-    });
-    const updateCount = () => {
-      const el = document.getElementById('char-count');
-      if (el) el.textContent = `${textarea.value.length} / 700`;
-    };
-    textarea.addEventListener('input', () => {
-      updateCount();
-      setValue(draftKey, textarea.value);
+    bindDraftField(textarea, {
+      key: draftId,
+      countId: 'char-count',
+      legacyKey: legacyDailyDraftKey(currentCircleId(state) || 'solo', state.currentRole, todayKey())
     });
   }
   document.getElementById('answer-form')?.addEventListener('submit', async (e) => {
@@ -985,7 +1043,7 @@ function bindToday() {
     if (text.length < 2) return toast('Напиши хотя бы пару слов', 'warn');
     const key = todayKey();
     setDayAnswer(state, key, state.currentRole, { text, submittedAt: new Date().toISOString() });
-    await setValue(draftKey, '');
+    await clearDraft(draftId);
     await saveState();
     await track('answer_submitted', { questionId: state.questionId, length: text.length });
     toast('Отправлено ❤️');
@@ -1237,6 +1295,13 @@ function bindSettings() {
     await saveState();
     render();
     toast('Имена сохранены');
+  });
+  document.getElementById('swap-display-names')?.addEventListener('click', async () => {
+    if (!confirm('Поменять только подписи? Тексты ответов останутся у тех, кто их написал, и между A и B не перенесутся.')) return;
+    swapDisplayNames(state);
+    await saveState();
+    render();
+    toast('Подписи поменялись. Ответы не переносились.');
   });
   document.querySelectorAll('[data-pref]').forEach((el) =>
     el.addEventListener('change', async () => {
@@ -1645,7 +1710,8 @@ async function setupNativeShell() {
         }
       });
       App.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) track('app_open', { resume: true });
+        if (!isActive) flushOpenDrafts();
+        else track('app_open', { resume: true });
       });
       App.addListener('appUrlOpen', ({ url }) => {
         try {
@@ -1696,9 +1762,53 @@ channel?.addEventListener('message', (event) => {
     const role = state.currentRole;
     const unlocked = state.testLabUnlocked;
     state = { ...state, ...event.data.state, currentRole: role, testLabUnlocked: unlocked || event.data.state.testLabUnlocked };
-    render();
+    reconcileDeviceRole(state);
+    render({ source: 'background' });
   }
 });
+
+function bindDraftField(textarea, { key, countId, legacyKey } = {}) {
+  if (!textarea || !key) return;
+  textarea.dataset.draftKey = key;
+  const valueAtBind = textarea.value;
+  const ticketAtBind = drafts.ticket(key);
+  const updateCount = () => {
+    const el = countId ? document.getElementById(countId) : null;
+    if (el) el.textContent = `${textarea.value.length} / 700`;
+  };
+  drafts.load(key, { legacyKey }).then((result) => {
+    if (!textarea.isConnected) return;
+    if (drafts.ticket(key) !== ticketAtBind) return;
+    if (textarea.value !== valueAtBind) return;
+    if (valueAtBind && valueAtBind !== result.value) return;
+    textarea.value = result.value || '';
+    updateCount();
+  }).catch(() => {});
+  textarea.addEventListener('input', () => {
+    drafts.remember(key, textarea.value);
+    updateCount();
+  });
+  textarea.addEventListener('blur', () => {
+    drafts.remember(key, textarea.value);
+    if (renderDeferred) render({ source: 'user' });
+  });
+  updateCount();
+}
+
+async function clearDraft(key) {
+  if (!key) return;
+  drafts.remember(key, '');
+  await drafts.flush(key);
+}
+
+function flushOpenDrafts() {
+  for (const id of ANSWER_FIELD_IDS) {
+    const el = document.getElementById(id);
+    if (!el?.dataset.draftKey) continue;
+    drafts.remember(el.dataset.draftKey, el.value);
+  }
+  return drafts.flushAll();
+}
 
 async function boot() {
   document.title = `Ближе ${config.versionName}`;
@@ -1714,11 +1824,18 @@ async function boot() {
   await setupNativeShell();
   ensureLinkPolling();
   if (canSync(state.deviceLink)) scheduleCoupleSync({ delay: 800 });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOpenDrafts();
+  });
+  window.addEventListener('pagehide', () => {
+    flushOpenDrafts();
+  });
   render();
 
   // E2E / lab hook: sync without leaving the current screen.
   if (typeof window !== 'undefined') {
     window.__nearerSyncNow = () => syncCoupleNow({ announce: false });
+    window.__nearerBackgroundRender = () => render({ source: 'background' });
   }
 
   // Demo partner only for single-phone hypothesis — never when a real pair is linked.

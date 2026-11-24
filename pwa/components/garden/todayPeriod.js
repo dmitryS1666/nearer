@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../ui/escapeHtml.js';
+import { answerColumns, participantNames } from '../../domain/identity.js';
 import {
   currentPeriodQuestion,
   derivePeriodProgress,
@@ -109,8 +110,7 @@ export function renderPeriodTodayBody(state, ctx) {
         <div><div class="eyebrow">Оба ответили</div><h2>${escapeHtml(question.text)}</h2></div>
       </div>
       <div class="answers-grid">
-        <article class="answer-card violet"><span>${escapeHtml(state.profile.name)}</span><p>${escapeHtml(ctx.slot.a?.text || '—')}</p></article>
-        <article class="answer-card rose"><span>${escapeHtml(state.profile.partnerName)}</span><p>${escapeHtml(ctx.slot.b?.text || '—')}</p></article>
+        ${periodAnswerCards(state, ctx.slot)}
       </div>
       <div class="completion-card">
         <div><span class="completion-icon">🌿</span>
@@ -125,12 +125,19 @@ export function renderPeriodTodayBody(state, ctx) {
               <h2>Маленький челлендж</h2>
               <p>${escapeHtml(period.contentSnapshot.challenge.text)}</p>
               <button class="secondary" data-toggle-challenge="${escapeHtml(period.id)}">${
-                period.challenge?.[state.currentRole]?.done ? 'Снять отметку' : 'Отметить «сделали»'
+                period.challenge?.[participantNames(state).role]?.done ? 'Снять отметку' : 'Отметить «сделали»'
               }</button>
             </div>`
           : ''
       }
     </section>`;
+}
+
+function periodAnswerCards(state, slot) {
+  const cols = answerColumns(state, slot);
+  return `
+    <article class="answer-card violet"><span>Вы · ${escapeHtml(cols.mineName)}</span><p>${escapeHtml(cols.mineText || '—')}</p></article>
+    <article class="answer-card rose"><span>${escapeHtml(cols.partnerName)}</span><p>${escapeHtml(cols.partnerText || '—')}</p></article>`;
 }
 
 export function renderOptionalLegacyDaily(state, legacyHtml) {

@@ -9,6 +9,8 @@ import {
 } from '../../domain/garden/period.js';
 import { derivePeriodProgress } from '../../domain/garden/progress.js';
 import { todayPeriodMode } from './todayPeriod.js';
+import { draftKey } from '../../domain/drafts.js';
+import { currentCircleId } from '../../domain/garden/ownership.js';
 
 /**
  * Wire garden + period-today DOM. Callbacks keep app.js as state owner.
@@ -20,17 +22,30 @@ export function bindPeriodTodayHandlers({
   track,
   toast,
   render,
-  triggerPeriodAnim
+  triggerPeriodAnim,
+  bindDraft,
+  clearDraft
 }) {
   const form = document.getElementById('period-answer-form');
   const textarea = document.getElementById('period-answer-text');
   if (textarea) {
-    const updateCount = () => {
-      const el = document.getElementById('period-char-count');
-      if (el) el.textContent = `${textarea.value.length} / 700`;
-    };
-    textarea.addEventListener('input', updateCount);
-    updateCount();
+    const state = getState();
+    const ctx = todayPeriodMode(state);
+    const key = draftKey({
+      circleId: currentCircleId(state),
+      role: state.currentRole,
+      periodId: ctx.period?.id,
+      questionId: ctx.question?.id
+    });
+    if (bindDraft) bindDraft(textarea, { key, countId: 'period-char-count' });
+    else {
+      const updateCount = () => {
+        const el = document.getElementById('period-char-count');
+        if (el) el.textContent = `${textarea.value.length} / 700`;
+      };
+      textarea.addEventListener('input', updateCount);
+      updateCount();
+    }
   }
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -47,6 +62,7 @@ export function bindPeriodTodayHandlers({
     } catch (err) {
       return toast(err.code === 'question_locked' ? 'Этот вопрос ещё закрыт' : 'Не получилось сохранить', 'warn');
     }
+    if (textarea?.dataset.draftKey) await clearDraft?.(textarea.dataset.draftKey);
     await saveState();
     scheduleCoupleSync();
     await track('period_answer_submitted', { periodId: period.id, questionId: ctx.question.id });

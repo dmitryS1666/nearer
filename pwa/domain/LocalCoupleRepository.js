@@ -80,7 +80,7 @@ export function streakMilestone(streak) {
 
 export const initialState = {
   onboarded: false,
-  profile: { name: 'Ты', partnerName: 'Партнёр' },
+  profile: { name: 'Ты', partnerName: 'Партнёр', namesLocked: false },
   currentRole: 'a',
   // Calendar-day question assignment
   calendarDate: null,
@@ -92,7 +92,8 @@ export const initialState = {
   answers: {},
   history: [],
   reactions: {},
-  notificationPrefs: { daily: false, partner: false, reveal: false, streak: false },
+  notificationPrefs: { daily: false, partner: false, reveal: false, streak: false, announcements: false },
+  analyticsConsent: 'unknown',
   reminderTime: '20:00',
   reminderConfigured: false,
   plus: false,

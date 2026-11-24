@@ -74,8 +74,11 @@ export function mergeSyncPayload(localState, remotePayload, { now = new Date().t
   next.startedUsingAt = [next.startedUsingAt, remotePayload.startedUsingAt].filter(Boolean).sort()[0] || next.startedUsingAt;
   next.defaultListsSeeded = Boolean(next.defaultListsSeeded || remotePayload.defaultListsSeeded);
 
-  if (remotePayload.profile) {
-    next.profile.partnerName = remotePayload.profile.name || next.profile.partnerName;
+  // Partner's own name may update the label. Never replace the local name,
+  // never swap answer owners, and never override a label the user locked.
+  if (remotePayload.profile && !next.profile?.namesLocked) {
+    const remoteName = typeof remotePayload.profile.name === 'string' ? remotePayload.profile.name.trim() : '';
+    if (remoteName) next.profile.partnerName = remoteName;
   }
 
   if (circleId) {

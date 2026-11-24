@@ -56,7 +56,7 @@ if (mode === 'debug') {
     console.error('Release APK not found');
     process.exit(1);
   }
-  const dest = resolve(artifactsDir, 'blizhe-0.1.0-hypothesis.apk');
+  const dest = resolve(artifactsDir, 'blizhe-0.2.0-hypothesis.apk');
   copyFileSync(found, dest);
   const mb = (statSync(dest).size / (1024 * 1024)).toFixed(2);
   console.log(`PASS release APK: ${dest} (${mb} MB)`);

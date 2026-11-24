@@ -1,4 +1,5 @@
 import { escapeHtml, safeImageUrl } from '../../ui/escapeHtml.js';
+import { answerColumns } from '../../domain/identity.js';
 import { buildTimeline, timelineDayLabel } from '../../domain/memories/timeline.js';
 import { searchMemories } from '../../domain/memories/search.js';
 import { availableReviewYears, buildYearReview } from '../../domain/memories/yearReview.js';
@@ -84,6 +85,13 @@ export function bindLife(ctx) {
   bindHitNav(ctx);
 }
 
+function historyAnswerLines(state, answers) {
+  const cols = answerColumns(state, answers);
+  return `
+    <div><b>Вы · ${escapeHtml(cols.mineName)}</b><p>${escapeHtml(cols.mineText || '—')}</p></div>
+    <div><b>${escapeHtml(cols.partnerName)}</b><p>${escapeHtml(cols.partnerText || '—')}</p></div>`;
+}
+
 function renderGroups(ctx, groups) {
   const meaningful = groups.some((group) => group.items.some((item) => item.kind !== 'start'));
   if (!meaningful && !(ctx.state.moments || []).length) {
@@ -104,8 +112,7 @@ function timelineItem(ctx, item) {
         <div class="question-meta"><span class="history-date">${escapeHtml(item.displayDate || timelineDayLabel(item))}</span><span class="pill">${escapeHtml(item.category || 'Вопрос')}</span></div>
         <h3>${escapeHtml(item.title || '')}</h3>
         <div class="mini-answers">
-          <div><b>${escapeHtml(ctx.state.profile.name)}</b><p>${escapeHtml(item.answers?.a?.text || '—')}</p></div>
-          <div><b>${escapeHtml(ctx.state.profile.partnerName)}</b><p>${escapeHtml(item.answers?.b?.text || '—')}</p></div>
+          ${historyAnswerLines(ctx.state, item.answers)}
         </div>
         ${item.reaction ? `<div class="history-reaction">${item.reaction}</div>` : ''}
       </div>
