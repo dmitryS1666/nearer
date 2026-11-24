@@ -92,7 +92,9 @@ export function createPilotService({
   auth,
   pairStore = null,
   mailer = null,
-  dispatchPush = async () => ({ accepted: 0, failed: 0, status: 'not_configured', results: [] }),
+  dispatchPush = async () => ({ accepted: 0, failed: 0, status: 'not_configured', invalidIds: [] }),
+  pushPublicKey = '',
+  pushInfo = { webPush: false, fcm: false, note: 'Принято провайдером — это не прочтение.' },
   now = () => new Date(),
   pushMinIntervalMs = 10 * 60 * 1000
 } = {}) {
@@ -222,6 +224,11 @@ export function createPilotService({
       };
       store.addFeedback(entry);
       return { status: 201, json: { id: entry.id, status: 'new' } };
+    }
+
+    if (method === 'GET' && route === '/api/push/vapid') {
+      if (!pushPublicKey) return too(404, 'not_configured');
+      return { status: 200, json: { publicKey: pushPublicKey } };
     }
 
     if (method === 'POST' && route === '/api/push/register') {
@@ -354,7 +361,7 @@ export function createPilotService({
         const broadcasts = store.broadcasts().map(({ title, body, audience, kind, accepted, failed, createdAt, test, status }) => ({
           title, body, audience, kind, accepted, failed, createdAt, test, status
         }));
-        return { status: 200, json: { broadcasts, push: { status: 'provider result is delivery to FCM or Web Push, not a read receipt' } } };
+        return { status: 200, json: { broadcasts, push: pushInfo } };
       }
       if (method === 'POST' && route === '/api/admin/pushes') {
         let body;

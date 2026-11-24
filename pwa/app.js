@@ -64,7 +64,9 @@ import { renderTodayArchive } from './components/today/todayArchive.js';
 import { renderPhotoSettings } from './components/settings/photos.js';
 import { renderDeviceLink, renderLocalBackup, renderPairRecovery } from './components/settings/link.js';
 import { renderFeedbackForm } from './components/settings/feedback.js';
-import { eventMaySend, hashPairId, postFeedback, postPilotEvent, sanitizeEventProps } from './domain/pilotClient.js';
+import { eventMaySend, fetchAppVersion, hashPairId, postFeedback, postPilotEvent, sanitizeEventProps } from './domain/pilotClient.js';
+import { assessAndroidUpdate, assessWebUpdate } from './domain/appUpdate.js';
+import { installAndroidUpdate, registerAnnouncementPush } from './platform/announcements.js';
 import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
 import { generatePairIdentity } from './platform/link/pairCrypto.js';
 import { renderPlus } from './components/plus/plusView.js';
@@ -852,6 +854,10 @@ function settingsView() {
     ${renderLocalBackup()}
     ${renderPairRecovery(state)}
     ${renderInstallSettings()}
+    <section class="settings-card" id="app-updates">
+      <h2>Обновления</h2>
+      <p>Текущая версия: ${escapeHtml(config.versionName)} (${config.versionCode})</p>
+    </section>
 
     <section class="settings-card plus-entry">
       <h2>Ближе Plus</h2>
@@ -1218,6 +1224,17 @@ async function enableNotifications() {
   const status = await NotificationService.requestPermission();
   if (status === 'granted') {
     await track('notification_enabled');
+    const push = await registerAnnouncementPush({
+      installId: getInstallId(),
+      announcements: state.notificationPrefs.announcements === true,
+      technical: true,
+      versionName: config.versionName
+    }).catch(() => ({ ok: false, reason: 'unavailable' }));
+    if (!push.ok && push.reason === 'firebase_plugin_missing') {
+      toast('Локальные напоминания включены. Объявления Firebase ещё не подключены.');
+    } else if (!push.ok && push.reason === 'not_configured') {
+      toast('Напоминания включены. Сервер объявлений ещё без ключа.');
+    }
     if (state.notificationPrefs.daily) {
       await NotificationService.scheduleDailyReminder(state.reminderTime);
     }
@@ -1568,6 +1585,7 @@ function bindSettings() {
     await resetAllData();
   });
   bindFeedbackForm();
+  bindAppUpdates();
   document.getElementById('analytics-on')?.addEventListener('click', async () => {
     state.analyticsConsent = 'granted';
     await saveState(false);
@@ -1733,6 +1751,61 @@ function bindTestLab() {
     triggerGardenAnim(prev, 0);
     nav('garden');
   });
+}
+
+const updateCopy = {
+  sha256_mismatch: 'Файл обновления не совпал с контрольной суммой.',
+  signature_mismatch: 'Подпись файла не совпала с установленным приложением.',
+  package_mismatch: 'Это пакет другого приложения.',
+  bad_apk: 'Файл не похож на приложение Ближе.',
+  download_failed: 'Загрузка прервалась. Можно попробовать ещё раз.',
+  permission_required: 'Разрешите установку из этого приложения в системном окне и нажмите «Обновить» снова.',
+  version_mismatch: 'Файл не совпал с объявленной сборкой.'
+};
+
+async function bindAppUpdates() {
+  const slot = document.getElementById('app-updates');
+  if (!slot) return;
+  const nativeAndroid = runtime.isAndroid();
+  let remote = null;
+  try {
+    remote = await fetchAppVersion(nativeAndroid ? 'android' : 'web');
+  } catch {
+    remote = null;
+  }
+  if (!slot.isConnected) return;
+  const decision = nativeAndroid ? assessAndroidUpdate(config, remote) : assessWebUpdate(config, remote);
+  const notes = decision.releaseNotes ? `<p>${escapeHtml(decision.releaseNotes)}</p>` : '';
+  if (decision.action === 'available') {
+    const seen = sessionStorage.getItem('blizhe-update-seen');
+    if (seen !== String(decision.versionCode)) {
+      sessionStorage.setItem('blizhe-update-seen', String(decision.versionCode));
+      void reportPilot('update_available');
+    }
+    slot.innerHTML = `<h2>Обновления</h2><p>Текущая версия: ${escapeHtml(config.versionName)}. Доступна: ${escapeHtml(decision.versionName)}.</p>${notes}<button class="primary" id="start-app-update" type="button">Обновить</button><p class="microcopy">${nativeAndroid ? 'Дальше Android спросит подтверждение. Скачивание само по себе ничего не устанавливает.' : 'Сайт обновит оболочку. Ответы и ключи в памяти телефона остаются.'}</p>`;
+    document.getElementById('start-app-update')?.addEventListener('click', () => startAppUpdate(remote, nativeAndroid));
+    return;
+  }
+  const problem = decision.action === 'reject' ? '<p class="microcopy">Обновление опубликовано с ошибкой и не предлагается.</p>' : '';
+  slot.innerHTML = `<h2>Обновления</h2><p>Текущая версия: ${escapeHtml(config.versionName)} (${config.versionCode})</p>${problem}<p class="microcopy">${nativeAndroid ? 'Новая сборка появится здесь, когда её опубликуют.' : 'В браузере обновляется сайт, не APK. На iPhone уведомления сайта приходят после добавления на экран «Домой».'}</p>`;
+}
+
+async function startAppUpdate(remote, nativeAndroid) {
+  await setValue('pending-update', { versionCode: remote.versionCode, versionName: remote.versionName });
+  void reportPilot('update_started');
+  if (!nativeAndroid) {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
+    await registration?.update?.();
+    location.reload();
+    return;
+  }
+  try {
+    const result = await installAndroidUpdate(remote);
+    if (result?.status === 'installer_opened') toast('Открылось системное окно. Установка ещё не завершена.');
+  } catch (error) {
+    toast(updateCopy[error?.code] || updateCopy[error?.message] || 'Не удалось начать установку', 'warn');
+  }
 }
 
 function feedbackPayloadFromForm() {
@@ -1929,6 +2002,11 @@ async function boot() {
   await initAnalytics();
   await track('app_open', { platform: runtime.platform() });
   void reportPilot('app_opened');
+  const pendingUpdate = await getValue('pending-update', null);
+  if (pendingUpdate && Number(config.versionCode) >= Number(pendingUpdate.versionCode)) {
+    void reportPilot('update_installed');
+    await setValue('pending-update', null);
+  }
   await loadState();
   await setupServiceWorker((url) => {
     const u = new URL(url, location.href);

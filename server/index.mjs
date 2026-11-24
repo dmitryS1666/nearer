@@ -10,6 +10,7 @@ import { createPlusMailer } from './plusMail.js';
 import { createPilotStore } from './pilotStore.js';
 import { createAdminAuth } from './adminAuth.js';
 import { createPilotService } from './pilotService.js';
+import { createPushDispatcher, pushStatus } from './pushDispatch.js';
 
 function plusIntentStorePath() {
   if (process.env.PLUS_INTENT_STORE) return process.env.PLUS_INTENT_STORE;
@@ -38,7 +39,10 @@ const pilot = createPilotService({
     secureCookie: process.env.PILOT_COOKIE_SECURE === '1'
   }),
   pairStore,
-  mailer: createPlusMailer()
+  mailer: createPlusMailer(),
+  dispatchPush: createPushDispatcher(),
+  pushPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+  pushInfo: pushStatus()
 });
 
 const port = Number(process.env.PORT || 8787);
