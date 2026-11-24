@@ -28,6 +28,8 @@ try {
   await page.fill('input[name="name"]', 'Аня');
   await page.fill('input[name="partnerName"]', 'Боря');
   await page.click('#start-form button[type="submit"]');
+  await page.waitForSelector('#release-ok', { timeout: 15000 });
+  await page.click('#release-ok');
   await page.waitForSelector('#answer-text, #period-answer-text', { state: 'attached', timeout: 15000 });
   const field = (await page.locator('#period-answer-text').count()) ? '#period-answer-text' : '#answer-text';
   if (field === '#answer-text') {

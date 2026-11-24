@@ -197,6 +197,8 @@ await page.fill('input[name="name"]', 'Дима');
 await page.fill('input[name="partnerName"]', 'Катя');
 await page.click('#start-form button[type="submit"]');
 await page.waitForSelector('.tabbar', { timeout: 15000 });
+const releaseOk = page.locator('#release-ok');
+if (await releaseOk.count()) await releaseOk.click();
 // Seed a short streak so the chip is not an empty «0»
 await patchState(`function (state) {
   state.streak = Math.max(state.streak || 0, 4);

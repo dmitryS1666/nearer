@@ -456,3 +456,12 @@
 
 .dist-choice{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}
 .dist-choice a{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;font-weight:800}
+.release-sheet{padding:22px 22px 18px}
+.release-sheet .eyebrow{color:var(--violet);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.release-sheet h2{font-size:30px;line-height:1.12;margin:8px 0 8px}
+.release-sheet .lede{margin:0 0 16px}
+.release-points{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.release-points li{display:flex;gap:12px;align-items:flex-start}
+.release-points span{flex:none;width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:#f3eeff;color:var(--violet);font-weight:800}
+.release-points p{margin:2px 0 0;color:var(--ink)}
+.release-sheet .primary{margin-top:18px}

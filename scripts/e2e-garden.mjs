@@ -22,6 +22,8 @@ async function onboard(page, name, partner) {
   await page.fill('input[name="partnerName"]', partner);
   await page.click('#start-form button[type="submit"]');
   await page.waitForSelector('.tabbar', { timeout: 15000 });
+  const release = page.locator('#release-ok');
+  if (await release.count()) await release.click();
 }
 
 async function nav(page, id) {

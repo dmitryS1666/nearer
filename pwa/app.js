@@ -13,6 +13,7 @@ import {
   reconcileDeviceRole,
   swapDisplayNames
 } from './domain/identity.js';
+import { releaseNotes, shouldShowReleaseNotes } from './domain/releaseNotes.js';
 import { runtime, setupServiceWorker } from './platform/runtime.js';
 import {
   distributionChoices,
@@ -979,6 +980,7 @@ function render(options = {}) {
     app.innerHTML = (views[screen] || todayView)();
     bindCommon();
     bindScreen();
+    mountReleaseNotes();
     refreshNotificationNudge();
     refreshInstallOffer();
     maybeHapticReveal();
@@ -986,6 +988,37 @@ function render(options = {}) {
     console.error(err);
     showErrorScreen(err);
   }
+}
+
+function mountReleaseNotes() {
+  const existing = document.getElementById('release-notes');
+  if (!shouldShowReleaseNotes(state, config.versionName)) {
+    existing?.remove();
+    return;
+  }
+  if (existing) return;
+  const note = releaseNotes(config.versionName);
+  const points = note.points
+    .map((point, index) => `<li><span>${index + 1}</span><p>${escapeHtml(point)}</p></li>`)
+    .join('');
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="sheet-backdrop" id="release-notes" role="dialog" aria-modal="true" aria-labelledby="release-title">
+      <section class="sheet release-sheet">
+        <div class="sheet-handle"></div>
+        <div class="eyebrow">${escapeHtml(note.eyebrow)}</div>
+        <h2 id="release-title">${escapeHtml(note.title)}</h2>
+        <p class="lede">${escapeHtml(note.lede)}</p>
+        <ol class="release-points">${points}</ol>
+        <button class="primary large full" id="release-ok" type="button">Понятно</button>
+      </section>
+    </div>`);
+  document.getElementById('release-ok')?.addEventListener('click', async () => {
+    state.releaseSeen = config.versionName;
+    const button = document.getElementById('release-ok');
+    if (button) button.disabled = true;
+    await saveState(false);
+    document.getElementById('release-notes')?.remove();
+  });
 }
 
 function bindCommon() {
