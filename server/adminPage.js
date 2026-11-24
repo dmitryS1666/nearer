@@ -39,6 +39,7 @@ export function adminPageHtml() {
   <p>Обезличенная активность, отзывы и объявления. Текстов ответов пар здесь нет.</p>
   <form id="login">
     <h2>Вход</h2>
+    <label>Логин<input id="username" autocomplete="username" required></label>
     <label>Пароль<input id="password" type="password" autocomplete="current-password" required></label>
     <div class="row"><button type="submit">Войти</button></div>
     <p id="login-error" class="warn"></p>
@@ -219,8 +220,9 @@ export function adminPageHtml() {
     event.preventDefault();
     document.getElementById('login-error').textContent = '';
     try {
-      const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: document.getElementById('password').value }) });
+      const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value }) });
       csrf = result.csrf;
+      document.getElementById('username').value = '';
       document.getElementById('password').value = '';
       await openApp();
     } catch (error) {

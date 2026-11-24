@@ -29,7 +29,7 @@ async function login(pilot) {
   const result = await pilot.handle({
     method: 'POST',
     path: '/api/admin/login',
-    rawBody: JSON.stringify({ password: 'correct horse battery' }),
+    rawBody: JSON.stringify({ username: 'admin', password: 'correct horse battery' }),
     ip: '10.0.0.8'
   });
   const cookie = result.headers['set-cookie'];
@@ -37,6 +37,24 @@ async function login(pilot) {
 }
 
 describe('pilot admin', () => {
+  it('rejects a password when the username is not admin', async () => {
+    const { pilot } = service();
+    const wrong = await pilot.handle({
+      method: 'POST',
+      path: '/api/admin/login',
+      rawBody: JSON.stringify({ username: 'root', password: 'correct horse battery' }),
+      ip: '10.0.0.9'
+    });
+    assert.equal(wrong.status, 401);
+    const missing = await pilot.handle({
+      method: 'POST',
+      path: '/api/admin/login',
+      rawBody: JSON.stringify({ password: 'correct horse battery' }),
+      ip: '10.0.0.10'
+    });
+    assert.equal(missing.status, 401);
+  });
+
   it('hides the dashboard and pair ciphertext from anonymous callers', async () => {
     const { pilot } = service();
     const dash = await pilot.handle({ method: 'GET', path: '/api/admin/dashboard' });

@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILS = 5;
@@ -18,13 +18,21 @@ export function verifyAdminPassword(password, stored) {
   return timingSafeEqual(next, prev);
 }
 
+function sameText(left, right) {
+  const a = createHash('sha256').update(String(left)).digest();
+  const b = createHash('sha256').update(String(right)).digest();
+  return timingSafeEqual(a, b);
+}
+
 export function createAdminAuth({
+  username = 'admin',
   password = '',
   passwordHash = '',
   now = () => Date.now(),
   secureCookie = false
 } = {}) {
-  const storedHash = passwordHash || (password ? hashAdminPassword(password) : '');
+  const storedHash = password ? hashAdminPassword(password) : (passwordHash || '');
+  const expectedUsername = String(username || 'admin');
   const sessions = new Map();
   const failures = new Map();
 
@@ -72,10 +80,12 @@ export function createAdminAuth({
     configured,
     cookie,
     clearedCookie,
-    login(ip, passwordValue, at = now()) {
+    login(ip, usernameValue, passwordValue, at = now()) {
       if (!configured()) return { error: 'admin_disabled', status: 503 };
       if (locked(ip, at)) return { error: 'rate_limited', status: 429 };
-      if (!verifyAdminPassword(passwordValue, storedHash)) {
+      const usernameOk = sameText(usernameValue || '', expectedUsername);
+      const passwordOk = verifyAdminPassword(passwordValue, storedHash);
+      if (!usernameOk || !passwordOk) {
         fail(ip, at);
         return { error: 'unauthorized', status: 401 };
       }

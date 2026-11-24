@@ -260,7 +260,7 @@ export function createPilotService({
     if (method === 'POST' && route === '/api/admin/login') {
       let body;
       try { body = parseJson(rawBody); } catch { return too(400, 'invalid_json'); }
-      const result = auth.login(String(ip || 'unknown'), body.password || '', atMs);
+      const result = auth.login(String(ip || 'unknown'), body.username || '', body.password || '', atMs);
       if (result.error) {
         audit('login_failed', ip);
         return too(result.status, result.error);

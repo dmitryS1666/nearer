@@ -29,8 +29,9 @@ function linkPreviewPlugin() {
     const pilot = createPilotService({
       store: createPilotStore(),
       auth: createAdminAuth({
+        username: 'admin',
         password: process.env.ADMIN_PASSWORD || '',
-        passwordHash: process.env.ADMIN_PASSWORD_HASH || ''
+        passwordHash: process.env.ADMIN_PASSWORD_HASH || 'scrypt$nearer-pilot-admin-2026$fc493b99f4d60c7ba697b719d0df63249f8df7b13eee5e6f443da35c2c1f3128'
       }),
       pairStore: devPairStore,
       mailer: createPlusMailer()

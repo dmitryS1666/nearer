@@ -9,6 +9,7 @@ import { createPlusIntentStore } from './plusIntentStore.js';
 import { createPlusMailer } from './plusMail.js';
 import { createPilotStore } from './pilotStore.js';
 import { createAdminAuth } from './adminAuth.js';
+import { PILOT_ADMIN_PASSWORD_HASH, PILOT_ADMIN_USERNAME } from './pilotAdmin.js';
 import { createPilotService } from './pilotService.js';
 import { createPushDispatcher, pushStatus } from './pushDispatch.js';
 
@@ -34,8 +35,9 @@ const pilot = createPilotService({
     retentionDays: Number(process.env.PILOT_RETENTION_DAYS || 180)
   }),
   auth: createAdminAuth({
+    username: PILOT_ADMIN_USERNAME,
     password: process.env.ADMIN_PASSWORD || '',
-    passwordHash: process.env.ADMIN_PASSWORD_HASH || '',
+    passwordHash: process.env.ADMIN_PASSWORD_HASH || PILOT_ADMIN_PASSWORD_HASH,
     secureCookie: process.env.PILOT_COOKIE_SECURE === '1'
   }),
   pairStore,
