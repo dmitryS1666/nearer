@@ -1,6 +1,6 @@
 # NEARER / Ближе — отчёт Pilot 0.2.0
 
-База: `main` @ `cc21ca9`. Три локальных коммита поверх неё. Ветка `main` на 3 коммита впереди `origin/main`. Коммиты не отправлены на GitHub. Выпуск GitHub Release для 0.2.0 не создавался.
+База: `main` @ `cc21ca9`. Три функциональных коммита и этот отчёт лежат локально и не отправлены на GitHub. Выпуск GitHub Release для 0.2.0 не создавался.
 
 Это не production-ready релиз. Ниже отдельно отмечено, что реально выполнено, а что осталось BLOCKED или NOT RUN.
 
@@ -191,6 +191,7 @@ PWA обновляет оболочку через `SKIP_WAITING` и `registrati
 - `443378f` — черновики при фоновой синхронизации и подписи «я / партнёр». `https://github.com/dmitryS1666/nearer/commit/443378f`
 - `6ef7760` — админка, согласие на аналитику, форма отзыва. `https://github.com/dmitryS1666/nearer/commit/6ef7760`
 - `b22b704` — объявления и проверка обновления в настройках. `https://github.com/dmitryS1666/nearer/commit/b22b704`
+- `4bd354d` — этот отчёт. `https://github.com/dmitryS1666/nearer/commit/4bd354d`
 
 Ссылки откроются только после push. Push не выполнялся.
 
