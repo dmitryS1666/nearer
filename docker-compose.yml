@@ -7,6 +7,11 @@ services:
     restart: unless-stopped
     environment:
       PAIR_STORE: /data/pairs.json
+      PILOT_STORE: /data/pilot.json
+      PILOT_RETENTION_DAYS: ${PILOT_RETENTION_DAYS:-180}
+      PILOT_COOKIE_SECURE: ${PILOT_COOKIE_SECURE:-1}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       PLUS_INTENT_STORE: /data/plus-intents.json
       PLUS_NOTIFY_TO: ${PLUS_NOTIFY_TO:-dsuschinsky@gmail.com}
       PLUS_MAIL_MODE: ${PLUS_MAIL_MODE:-}

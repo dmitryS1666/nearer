@@ -232,6 +232,12 @@ export function createPairStore({ filePath = null, now = () => Date.now(), ttlMs
       };
     },
 
+    summary(at = now()) {
+      const linked = pairs.filter((pair) => pair.partnerTokenHash).length;
+      const waiting = pairs.filter((pair) => !pair.partnerTokenHash && pair.expiresAt > at).length;
+      return { created: pairs.length, linked, waiting };
+    },
+
     leave(token) {
       const pair = findByToken(token);
       if (!pair) return false;

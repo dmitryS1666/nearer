@@ -132,6 +132,7 @@ export function bindList(ctx) {
       ? updateListItem(ctx.state, editing, patch, { actorRole: ctx.role })
       : createListItem(ctx.state, { ...patch, listId: list.id }, { actorRole: ctx.role });
     if (!saved) return ctx.toast('Добавьте название', 'warn');
+    if (!editing && list.type === 'wishlist') void ctx.reportPilot?.('wishlist_item_created');
     ctx.ui.sheet = null;
     ctx.ui.editingItemId = null;
     await ctx.commit();

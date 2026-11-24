@@ -13,14 +13,27 @@ function linkPreviewPlugin() {
     const { createPlusIntentService } = await import('../server/plusIntent.js');
     const { createPlusIntentStore } = await import('../server/plusIntentStore.js');
     const { createPlusMailer } = await import('../server/plusMail.js');
+    const { createPilotStore } = await import('../server/pilotStore.js');
+    const { createAdminAuth } = await import('../server/adminAuth.js');
+    const { createPilotService } = await import('../server/pilotService.js');
     const plusService = createPlusIntentService({
       store: createPlusIntentStore(),
       mailer: createPlusMailer(),
       allowedOrigins: String(process.env.PLUS_ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean)
     });
     // Local/dev E2E shares one loopback IP for all Playwright contexts — raise sync budget.
-    const pairService = createPairService(createPairStore(), {
+    const devPairStore = createPairStore();
+    const pairService = createPairService(devPairStore, {
       limits: { create: 40, join: 40, sync: 400, windowMs: 10 * 60 * 1000 }
+    });
+    const pilot = createPilotService({
+      store: createPilotStore(),
+      auth: createAdminAuth({
+        password: process.env.ADMIN_PASSWORD || '',
+        passwordHash: process.env.ADMIN_PASSWORD_HASH || ''
+      }),
+      pairStore: devPairStore,
+      mailer: createPlusMailer()
     });
 
     server.middlewares.use((req, res, next) => {
@@ -97,6 +110,39 @@ function linkPreviewPlugin() {
           res.setHeader('content-type', 'application/json; charset=utf-8');
           res.setHeader('cache-control', 'no-store');
           res.end(JSON.stringify(result.json));
+        } catch {
+          res.statusCode = 400;
+          res.setHeader('content-type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error: 'invalid_json' }));
+        }
+      });
+    });
+    server.middlewares.use((req, res, next) => {
+      const path = String(req.url || '').split('?')[0];
+      const owned = path === '/admin' || path.startsWith('/api/admin') || path.startsWith('/api/pilot') || path === '/api/feedback' || path === '/api/app/version' || path.startsWith('/api/push');
+      if (!owned) return next();
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('error', () => next());
+      req.on('end', async () => {
+        try {
+          const result = await pilot.handle({
+            method: req.method,
+            path: req.url,
+            rawBody: Buffer.concat(chunks).toString('utf8'),
+            headers: req.headers,
+            ip: req.socket?.remoteAddress || ''
+          });
+          res.statusCode = result?.status || 404;
+          for (const [key, value] of Object.entries(result?.headers || {})) res.setHeader(key, value);
+          res.setHeader('cache-control', 'no-store');
+          if (result?.json != null) {
+            res.setHeader('content-type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify(result.json));
+          } else {
+            if (!res.getHeader('content-type')) res.setHeader('content-type', 'text/html; charset=utf-8');
+            res.end(result?.body || '');
+          }
         } catch {
           res.statusCode = 400;
           res.setHeader('content-type', 'application/json; charset=utf-8');

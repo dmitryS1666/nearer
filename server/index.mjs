@@ -7,6 +7,9 @@ import { createPairStore } from './pairStore.js';
 import { createPlusIntentService } from './plusIntent.js';
 import { createPlusIntentStore } from './plusIntentStore.js';
 import { createPlusMailer } from './plusMail.js';
+import { createPilotStore } from './pilotStore.js';
+import { createAdminAuth } from './adminAuth.js';
+import { createPilotService } from './pilotService.js';
 
 function plusIntentStorePath() {
   if (process.env.PLUS_INTENT_STORE) return process.env.PLUS_INTENT_STORE;
@@ -20,12 +23,37 @@ const plusService = createPlusIntentService({
   allowedOrigins: String(process.env.PLUS_ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean)
 });
 
-const pairService = createPairService(createPairStore({
+const pairStore = createPairStore({
   filePath: process.env.PAIR_STORE || fileURLToPath(new URL('../data/pairs.json', import.meta.url))
-}));
+});
+const pairService = createPairService(pairStore);
+const pilot = createPilotService({
+  store: createPilotStore({
+    filePath: process.env.PILOT_STORE || fileURLToPath(new URL('../data/pilot.json', import.meta.url)),
+    retentionDays: Number(process.env.PILOT_RETENTION_DAYS || 180)
+  }),
+  auth: createAdminAuth({
+    password: process.env.ADMIN_PASSWORD || '',
+    passwordHash: process.env.ADMIN_PASSWORD_HASH || '',
+    secureCookie: process.env.PILOT_COOKIE_SECURE === '1'
+  }),
+  pairStore,
+  mailer: createPlusMailer()
+});
 
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || '0.0.0.0';
+
+function sendResult(res, result) {
+  const headers = {
+    'cache-control': 'no-store',
+    ...(result.headers || {})
+  };
+  if (result.json != null) headers['content-type'] = 'application/json; charset=utf-8';
+  res.writeHead(result.status, headers);
+  if (result.json != null) res.end(JSON.stringify(result.json));
+  else res.end(result.body || '');
+}
 
 function readBody(req, limit = 16_384) {
   return new Promise((resolve, reject) => {
@@ -52,6 +80,28 @@ const server = createServer(async (req, res) => {
     return;
   }
   const path = req.url.split('?')[0];
+  if (path === '/admin' || path === '/admin/' || path.startsWith('/api/admin') || path.startsWith('/api/pilot') || path === '/api/feedback' || path === '/api/app/version' || path.startsWith('/api/push')) {
+    try {
+      const raw = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req, 16_384);
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      const result = await pilot.handle({
+        method: req.method,
+        path: req.url,
+        rawBody: raw,
+        headers: req.headers,
+        ip
+      });
+      if (result) {
+        sendResult(res, result);
+        return;
+      }
+    } catch (error) {
+      const status = error?.message === 'too_large' ? 413 : 400;
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ error: error?.message === 'too_large' ? 'too_large' : 'invalid_json' }));
+      return;
+    }
+  }
   if (path.startsWith('/api/pairs')) {
     try {
       const bodyLimit = path === '/api/pairs/sync' && req.method === 'PUT' ? 768_000 : 4_096;

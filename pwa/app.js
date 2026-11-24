@@ -22,7 +22,7 @@ import {
 } from './platform/pwaInstall.js';
 import { NotificationService } from './platform/notifications.js';
 import { lightImpact } from './platform/haptics.js';
-import { shareText, openExternalUrl } from './platform/sharing.js';
+import { shareText } from './platform/sharing.js';
 import { configureStatusBar } from './platform/statusBar.js';
 import {
   coupleRepository,
@@ -63,6 +63,8 @@ import { renderShare, bindShare } from './components/share/shareInbox.js';
 import { renderTodayArchive } from './components/today/todayArchive.js';
 import { renderPhotoSettings } from './components/settings/photos.js';
 import { renderDeviceLink, renderLocalBackup, renderPairRecovery } from './components/settings/link.js';
+import { renderFeedbackForm } from './components/settings/feedback.js';
+import { eventMaySend, hashPairId, postFeedback, postPilotEvent, sanitizeEventProps } from './domain/pilotClient.js';
 import { createPair, joinPair, fetchPairStatus, leavePair, pairErrorCopy } from './platform/link/pairClient.js';
 import { generatePairIdentity } from './platform/link/pairCrypto.js';
 import { renderPlus } from './components/plus/plusView.js';
@@ -189,7 +191,30 @@ const demoPartner = new DemoPartnerEngine({
 
 const roleLabel = () => myDisplayName(state);
 const drafts = createDraftController({ getValue, setValue });
+const FEEDBACK_DRAFT_KEY = 'feedback:local:form';
+let feedbackDraft = null;
 let renderDeferred = false;
+
+async function reportPilot(type, props = {}) {
+  try {
+    if (!eventMaySend(state.analyticsConsent, type)) return;
+    const installId = getInstallId();
+    if (!installId) return;
+    await postPilotEvent({
+      event: type,
+      consent: state.analyticsConsent === 'granted' ? 'granted' : 'unknown',
+      installId,
+      platform: runtime.isAndroid() ? 'android' : runtime.isIOS() ? 'ios' : 'pwa',
+      versionName: config.versionName,
+      versionCode: config.versionCode,
+      role: state.deviceLink?.role === 'a' || state.deviceLink?.role === 'b' ? state.deviceLink.role : '',
+      pairHash: await hashPairId(state.deviceLink?.pairId || ''),
+      props: sanitizeEventProps(props)
+    });
+  } catch {
+    /* The diary and garden keep working when analytics is offline. */
+  }
+}
 const partnerRole = () => (state.currentRole === 'a' ? 'b' : 'a');
 const todayKey = () => coupleRepository.todayKey(state);
 const todayQuestion = () => decorateQuestion(coupleRepository.getTodayQuestion(state));
@@ -290,7 +315,8 @@ function makeCtx() {
     async commit() {
       await saveState();
       render();
-    }
+    },
+    reportPilot
   };
 }
 
@@ -375,7 +401,10 @@ function nav(to, extra = {}) {
   history.replaceState({}, '', url);
   if (to === 'garden') track('garden_viewed');
   if (to === 'history') track('history_viewed');
-  if (to === 'packs') track('plus_viewed');
+  if (to === 'packs') {
+    track('plus_viewed');
+    void reportPilot('plus_viewed');
+  }
   render();
 }
 
@@ -480,6 +509,7 @@ function renderOnboarding() {
     coupleRepository.ensureTodayQuestion(state);
     await saveState();
     await track('onboarding_completed');
+    void reportPilot('onboarding_completed');
     toast('Рады вас видеть 💜');
     render();
   });
@@ -585,6 +615,7 @@ function todayView() {
     ${notificationNudge()}
     ${installNudge()}
     ${syncBanner}
+    ${consentCard()}
     ${body}
     ${renderTodayArchive(state)}
   `, 'today');
@@ -594,6 +625,18 @@ function todayGreeting() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
   return `${hello} ❤️`;
+}
+
+function consentCard() {
+  if (state.analyticsConsent !== 'unknown') return '';
+  return `<section class="settings-card" id="analytics-consent">
+    <h2>Анонимная статистика</h2>
+    <p>Можно сообщить, что приложение открыли и что пара ответила, без текстов, фото и имён. Это можно выключить в настройках.</p>
+    <div class="button-row wrap">
+      <button class="primary" id="analytics-yes" type="button">Разрешить</button>
+      <button class="secondary" id="analytics-no" type="button">Не надо</button>
+    </div>
+  </section>`;
 }
 
 function syncBannerHtml() {
@@ -796,6 +839,7 @@ function settingsView() {
       ${prefToggle('partner', 'Партнёр ответил', 'Когда можно заглянуть дальше')}
       ${prefToggle('reveal', 'Оба ответили', 'Когда можно читать друг друга')}
       ${prefToggle('streak', 'Серия под риском', 'Необязательно вечером')}
+      ${prefToggle('announcements', 'Новости от Ближе', 'Обновления и приглашения. Напоминание о вопросе остаётся отдельно.')}
       <label class="setting-field inline">Время<input id="reminder-time" type="time" value="${state.reminderTime}"></label>
       <div class="button-row wrap" style="margin-top:12px">
         <button class="primary" id="enable-push">Разрешить уведомления</button>
@@ -825,8 +869,18 @@ function settingsView() {
         <div><span>Отзывы</span><b>${escapeHtml(config.TEST_FEEDBACK_EMAIL || 'не задано')}</b></div>
       </div>
       <div class="button-row wrap">
-        <button class="secondary" id="feedback-btn">Оставить отзыв о тестовой версии</button>
         <button class="secondary" id="about-privacy">Подробнее</button>
+      </div>
+    </section>
+
+    ${renderFeedbackForm(feedbackDraft || {})}
+
+    <section class="settings-card">
+      <h2>Статистика</h2>
+      <p>Сейчас: ${state.analyticsConsent === 'granted' ? 'включена' : state.analyticsConsent === 'denied' ? 'выключена' : 'ещё не выбрана'}.</p>
+      <div class="button-row wrap">
+        <button class="secondary" id="analytics-on" type="button">Включить</button>
+        <button class="secondary" id="analytics-off" type="button">Выключить</button>
       </div>
     </section>
 
@@ -963,7 +1017,8 @@ function bindScreen() {
       scheduleCoupleSync,
       toast,
       render,
-      nav
+      nav,
+      reportPilot
     });
   }
   if (screen === 'packs') bindPlus();
@@ -1002,6 +1057,7 @@ function bindPlus() {
       } catch {
         /* the server already dedupes this request id */
       }
+      void reportPilot('plus_intent_clicked', { source: route.plusSource || 'other' });
     }
     if (screen === 'packs') {
       render();
@@ -1020,7 +1076,8 @@ function bindToday() {
     render,
     triggerPeriodAnim,
     bindDraft: bindDraftField,
-    clearDraft
+    clearDraft,
+    reportPilot
   });
   const textarea = document.getElementById('answer-text');
   const draftId = draftKey({
@@ -1046,6 +1103,8 @@ function bindToday() {
     await clearDraft(draftId);
     await saveState();
     await track('answer_submitted', { questionId: state.questionId, length: text.length });
+    void reportPilot('question_answered', { length: text.length });
+    if (bothAnswered()) void reportPilot('mutual_answer_completed');
     toast('Отправлено ❤️');
     if (!isLivePair()) demoPartner.scheduleAfterUserAnswer(key);
     render();
@@ -1062,6 +1121,17 @@ function bindToday() {
       render();
     })
   );
+  document.getElementById('analytics-yes')?.addEventListener('click', async () => {
+    state.analyticsConsent = 'granted';
+    await saveState(false);
+    render();
+    void reportPilot('app_opened');
+  });
+  document.getElementById('analytics-no')?.addEventListener('click', async () => {
+    state.analyticsConsent = 'denied';
+    await saveState(false);
+    render();
+  });
   document.getElementById('enable-push-nudge')?.addEventListener('click', () => {
     pendingSettingsFocus = 'notifications';
     nav('settings');
@@ -1266,6 +1336,7 @@ async function refreshDeviceLink(announce) {
       state.currentRole = state.deviceLink.role;
     }
     if (state.deviceLink.status !== previous) {
+      if (previous !== 'linked' && state.deviceLink.status === 'linked') void reportPilot('pair_activated');
       await saveState(false);
       ensureLinkPolling();
       if (canSync(state.deviceLink)) await syncCoupleNow({ announce: true });
@@ -1376,6 +1447,7 @@ function bindSettings() {
       bindStateToPair(state, created.pairId, { previousPairId });
       await saveState(false);
       ensureLinkPolling();
+      void reportPilot('pair_created');
       render();
     } catch (error) {
       toast(pairErrorCopy(error), 'warn');
@@ -1395,6 +1467,8 @@ function bindSettings() {
       await saveState(false);
       ensureLinkPolling();
       toast('Телефоны связаны');
+      void reportPilot('pair_joined');
+      if (state.deviceLink.status === 'linked') void reportPilot('pair_activated');
       await syncCoupleNow({ announce: true });
       render();
     } catch (error) {
@@ -1493,7 +1567,19 @@ function bindSettings() {
     if (!confirm('Точно удалить все данные на этом устройстве?')) return;
     await resetAllData();
   });
-  document.getElementById('feedback-btn')?.addEventListener('click', sendFeedback);
+  bindFeedbackForm();
+  document.getElementById('analytics-on')?.addEventListener('click', async () => {
+    state.analyticsConsent = 'granted';
+    await saveState(false);
+    render();
+    toast('Статистика включена');
+  });
+  document.getElementById('analytics-off')?.addEventListener('click', async () => {
+    state.analyticsConsent = 'denied';
+    await saveState(false);
+    render();
+    toast('Статистика выключена');
+  });
   document.getElementById('about-privacy')?.addEventListener('click', () => {
     alert(
       'О тестовой версии\n\nОтветы, моменты и сад хранятся на этом телефоне.\n\nСервер связи, если он включён, хранит только код пары и метки двух устройств. Тексты туда не отправляются.\n\nНет рекламных идентификаторов, контактов и геолокации.'
@@ -1649,37 +1735,63 @@ function bindTestLab() {
   });
 }
 
-async function sendFeedback() {
-  const template = `Отзыв о тестовой версии ${config.appName} ${config.versionName}
+function feedbackPayloadFromForm() {
+  return {
+    type: document.getElementById('feedback-type')?.value || 'bug',
+    message: document.getElementById('feedback-text')?.value || '',
+    rating: document.getElementById('feedback-rating')?.value || '',
+    contact: document.getElementById('feedback-contact')?.value || '',
+    consent: Boolean(document.getElementById('feedback-consent')?.checked)
+  };
+}
 
-Что понравилось?
+function rememberFeedbackDraft() {
+  feedbackDraft = feedbackPayloadFromForm();
+  drafts.remember(FEEDBACK_DRAFT_KEY, JSON.stringify(feedbackDraft));
+}
 
-Что было непонятно?
-
-Хотелось ли открыть приложение завтра?
-
-За что вы бы заплатили?
-
-Что раздражало?
-`;
-  if (config.TEST_FEEDBACK_URL) {
-    await openExternalUrl(config.TEST_FEEDBACK_URL);
-    return;
-  }
-  const email = String(config.TEST_FEEDBACK_EMAIL || '').trim();
-  if (email) {
-    const subject = encodeURIComponent(`Отзыв о ${config.appName} ${config.versionName}`);
-    const body = encodeURIComponent(template);
-    await openExternalUrl(`mailto:${email}?subject=${subject}&body=${body}`);
-    toast('Открываю письмо для отзыва');
-    return;
-  }
-  const result = await shareText({
-    title: `Отзыв о ${config.appName}`,
-    text: template,
-    dialogTitle: 'Поделиться отзывом'
+function bindFeedbackForm() {
+  const form = document.getElementById('feedback-form');
+  if (!form) return;
+  const ticketAtBind = drafts.ticket(FEEDBACK_DRAFT_KEY);
+  drafts.load(FEEDBACK_DRAFT_KEY).then((result) => {
+    if (!form.isConnected || drafts.ticket(FEEDBACK_DRAFT_KEY) !== ticketAtBind) return;
+    if (!result.value) return;
+    let parsed;
+    try { parsed = JSON.parse(result.value); } catch { return; }
+    if (JSON.stringify(parsed) === JSON.stringify(feedbackDraft)) return;
+    feedbackDraft = parsed;
+    if (screen === 'settings') render();
+  }).catch(() => {});
+  form.addEventListener('input', rememberFeedbackDraft);
+  form.addEventListener('change', rememberFeedbackDraft);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = feedbackPayloadFromForm();
+    feedbackDraft = payload;
+    if (!payload.consent) return toast('Нужно согласие на отправку отзыва', 'warn');
+    if (payload.message.trim().length < 4) return toast('Напишите чуть подробнее', 'warn');
+    rememberFeedbackDraft();
+    if (navigator.onLine === false) return toast('Нет сети — текст остался на телефоне');
+    try {
+      await postFeedback({
+        ...payload,
+        rating: payload.rating ? Number(payload.rating) : null,
+        appVersion: config.versionName,
+        platform: runtime.isAndroid() ? 'android' : runtime.isNative() ? runtime.platform() : 'pwa',
+        osVersion: navigator.userAgent.slice(0, 120),
+        installId: getInstallId() || `install-${Date.now()}`
+      });
+      feedbackDraft = null;
+      drafts.remember(FEEDBACK_DRAFT_KEY, '');
+      await drafts.flush(FEEDBACK_DRAFT_KEY);
+      void reportPilot('feedback_submitted');
+      toast('Отзыв отправлен');
+      render();
+    } catch (error) {
+      toast(error.code === 'rate_limited' || error.code === 'duplicate' ? 'Такой отзыв уже уходил недавно' : 'Не отправилось — текст на месте', 'warn');
+    }
   });
-  toast(result.ok ? (result.method === 'clipboard' ? 'Шаблон скопирован' : 'Можно отправить отзыв') : 'Не удалось поделиться', result.ok ? 'default' : 'warn');
 }
 
 async function exportTestData() {
@@ -1816,6 +1928,7 @@ async function boot() {
   await userSession.get();
   await initAnalytics();
   await track('app_open', { platform: runtime.platform() });
+  void reportPilot('app_opened');
   await loadState();
   await setupServiceWorker((url) => {
     const u = new URL(url, location.href);

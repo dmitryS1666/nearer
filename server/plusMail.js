@@ -156,7 +156,8 @@ export function createPlusMailer({ env = process.env, deliver = smtpDeliver, ope
       mode: 'test',
       sent,
       async send(message) {
-        sent.push({ to, subject: message.subject, text: message.text });
+        const recipient = message.to || to;
+        sent.push({ to: recipient, subject: message.subject, text: message.text });
         return { accepted: true, id: `test-${sent.length}` };
       }
     };
@@ -175,6 +176,7 @@ export function createPlusMailer({ env = process.env, deliver = smtpDeliver, ope
       configured: true,
       mode: 'smtp',
       async send(message) {
+        const recipient = message.to || to;
         const socket = await openSocket({ host, port, secure });
         try {
           await deliver({
@@ -182,7 +184,7 @@ export function createPlusMailer({ env = process.env, deliver = smtpDeliver, ope
             user,
             pass,
             from,
-            to,
+            to: recipient,
             subject: message.subject,
             text: message.text,
             startTls: !secure,

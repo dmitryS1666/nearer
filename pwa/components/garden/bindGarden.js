@@ -24,7 +24,8 @@ export function bindPeriodTodayHandlers({
   render,
   triggerPeriodAnim,
   bindDraft,
-  clearDraft
+  clearDraft,
+  reportPilot
 }) {
   const form = document.getElementById('period-answer-form');
   const textarea = document.getElementById('period-answer-text');
@@ -66,6 +67,9 @@ export function bindPeriodTodayHandlers({
     await saveState();
     scheduleCoupleSync();
     await track('period_answer_submitted', { periodId: period.id, questionId: ctx.question.id });
+    void reportPilot?.('question_answered', { length: text.length });
+    if (result.mutualIncreased) void reportPilot?.('mutual_answer_completed');
+    if (result.bloomEvent) void reportPilot?.('garden_period_completed');
     if (result.mutualIncreased) {
       triggerPeriodAnim(period, prevStage, result);
       toast(result.bloomEvent ? 'Тема завершена — растение расцвело 🌸' : 'Оба ответили — растение подросло');
@@ -97,7 +101,8 @@ export function bindGardenHandlers({
   scheduleCoupleSync,
   toast,
   render,
-  nav
+  nav,
+  reportPilot
 }) {
   document.querySelectorAll('[data-start-theme]').forEach((el) =>
     el.addEventListener('click', async () => {
@@ -108,6 +113,7 @@ export function bindGardenHandlers({
         });
         await saveState();
         scheduleCoupleSync();
+        void reportPilot?.('garden_period_started');
         toast(`Тема «${period.contentSnapshot.name}» началась`);
         route.periodId = null;
         nav('today');
